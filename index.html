@@ -1,0 +1,41 @@
+<script id="vertex-shader" type="x-shader/x-vertex">
+  attribute vec2 aVertexPosition;
+  attribute vec2 aTextureCoord;
+  
+  uniform vec2 uScalingFactor;
+  uniform vec2 uRotationVector;
+
+  varying highp vec2 vTextureCoord;
+  
+  void main() {
+  vec2 rotatedPosition = vec2(
+			      aVertexPosition.x * uRotationVector.y +
+			      aVertexPosition.y * uRotationVector.x,
+			      aVertexPosition.y * uRotationVector.y -
+			      aVertexPosition.x * uRotationVector.x
+			      );
+
+  gl_Position = vec4(rotatedPosition * uScalingFactor, 0.0, 1.0);
+  vTextureCoord = aTextureCoord;
+}
+</script>
+
+<script id="fragment-shader" type="x-shader/x-fragment"> 
+#ifdef GL_ES
+precision highp float;
+#endif
+
+varying highp vec2 vTextureCoord;
+
+uniform sampler2D uSampler;
+
+void main() {
+gl_FragColor = texture2D(uSampler, vTextureCoord);
+}
+</script>
+
+<canvas id="glcanvas" width="600" height="460">
+  Oh no! Your browser doesn't support canvas!
+</canvas>
+
+<script src="app.js" type="text/javascript"></script>
