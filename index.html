@@ -26,6 +26,7 @@
 
       uniform vec2 uScalingFactor;
       uniform vec2 uRotationVector;
+      uniform vec2 uTranslationVector;
 
       varying highp vec2 vTextureCoord;
 
@@ -36,7 +37,8 @@
                                     aVertexPosition.y * uRotationVector.y -
                                     aVertexPosition.x * uRotationVector.x
                                     );
-
+        rotatedPosition += uTranslationVector;
+      
         gl_Position = vec4(rotatedPosition * uScalingFactor, 0.0, 1.0);
         vTextureCoord = aTextureCoord;
       }

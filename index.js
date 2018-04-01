@@ -65,6 +65,7 @@ function main() {
 	uniformLocations: {
 	    scalingFactor: gl.getUniformLocation(shaderProgram, 'uScalingFactor'),
 	    rotationVector: gl.getUniformLocation(shaderProgram, 'uRotationVector'),
+            translationVector: gl.getUniformLocation(shaderProgram, 'uTranslationVector'),
 	    uSampler: gl.getUniformLocation(shaderProgram, 'uSampler'),
 	},
     };
@@ -90,8 +91,27 @@ function main() {
 
     const buffers = initBuffers(gl);
     const texture = loadTexture(gl, 'knight256.png');
+
+    document.onkeydown = handleKeyDown;
+    document.onkeyup = handleKeyUp;
     
     animateScene(gl, glCanvas, buffers, texture, programInfo);
+}
+
+var currentTranslation = [0, 0];
+
+var currentlyPressedKeys = {};
+
+function handleKeyDown(event) {
+    currentlyPressedKeys[event.keyCode] = true;
+
+    if (String.fromCharCode(event.keyCode) == "F") {
+        currentTranslation[1] += 0.1
+    }
+}
+
+function handleKeyUp(event) {
+    currentlyPressedKeys[event.keyCode] = false;
 }
 
 function animateScene(gl, glCanvas, buffers, texture, programInfo) {
@@ -116,6 +136,7 @@ function animateScene(gl, glCanvas, buffers, texture, programInfo) {
 
     gl.uniform2fv(programInfo.uniformLocations.scalingFactor, currentScale);
     gl.uniform2fv(programInfo.uniformLocations.rotationVector, currentRotation);
+    gl.uniform2fv(programInfo.uniformLocations.translationVector, currentTranslation);
     // gl.uniform4fv(uGlobalColor, [0.1, .7, .2, 1.0]);
 
     // gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
@@ -130,45 +151,13 @@ function animateScene(gl, glCanvas, buffers, texture, programInfo) {
 
     // gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
 
-    // Tell WebGL how to pull out the positions from the position
-    // buffer into the vertexPosition attribute
-    {
-	const numComponents = 2;
-	const type = gl.FLOAT;
-	const normalize = false;
-	const stride = 0;
-	const offset = 0;
-	gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
-	gl.vertexAttribPointer(
-	    programInfo.attribLocations.vertexPosition,
-	    numComponents,
-	    type,
-	    normalize,
-	    stride,
-	    offset);
-	gl.enableVertexAttribArray(
-	    programInfo.attribLocations.vertexPosition);
-    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
+    gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 2, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
 
-    // Tell WebGL how to pull out the texture coordinates from
-    // the texture coordinate buffer into the textureCoord attribute.
-    {
-	const numComponents = 2;
-	const type = gl.FLOAT;
-	const normalize = false;
-	const stride = 0;
-	const offset = 0;
-	gl.bindBuffer(gl.ARRAY_BUFFER, buffers.textureCoord);
-	gl.vertexAttribPointer(
-	    programInfo.attribLocations.textureCoord,
-	    numComponents,
-	    type,
-	    normalize,
-	    stride,
-	    offset);
-	gl.enableVertexAttribArray(
-	    programInfo.attribLocations.textureCoord);
-    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffers.textureCoord);
+    gl.vertexAttribPointer(programInfo.attribLocations.textureCoord, 2, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(programInfo.attribLocations.textureCoord);
 
     // Tell WebGL which indices to use to index the vertices
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.indices);
@@ -184,12 +173,7 @@ function animateScene(gl, glCanvas, buffers, texture, programInfo) {
     // Tell the shader we bound the texture to texture unit 0
     gl.uniform1i(programInfo.uniformLocations.uSampler, 0);
 
-    {
-	const vertexCount = 6;
-	const type = gl.UNSIGNED_SHORT;
-	const offset = 0;
-	gl.drawElements(gl.TRIANGLES, vertexCount, type, offset);
-    }
+    gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
     
     window.requestAnimationFrame(function(currentTime) {
 	let deltaAngle = ((currentTime - previousTime) / 1000.0)
