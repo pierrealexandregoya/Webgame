@@ -1,41 +1,65 @@
-<script id="vertex-shader" type="x-shader/x-vertex">
-  attribute vec2 aVertexPosition;
-  attribute vec2 aTextureCoord;
+<!DOCTYPE html>
+<html lang="en">
   
-  uniform vec2 uScalingFactor;
-  uniform vec2 uRotationVector;
-
-  varying highp vec2 vTextureCoord;
+  <head>
+    <meta charset="utf-8" />
+    <title>WebGL sandbox</title>
+    <style>
+      html, body {
+          margin: 0;
+          height: 100%;
+      }
+      * {
+          margin: 0;
+          padding: 0;
+      }
+      canvas {
+      display:block;
+      }
+    </style>
+  </head>
   
-  void main() {
-  vec2 rotatedPosition = vec2(
-			      aVertexPosition.x * uRotationVector.y +
-			      aVertexPosition.y * uRotationVector.x,
-			      aVertexPosition.y * uRotationVector.y -
-			      aVertexPosition.x * uRotationVector.x
-			      );
+  <body>
+    <script id="vertex-shader" type="x-shader/x-vertex">
+      attribute vec2 aVertexPosition;
+      attribute vec2 aTextureCoord;
 
-  gl_Position = vec4(rotatedPosition * uScalingFactor, 0.0, 1.0);
-  vTextureCoord = aTextureCoord;
-}
-</script>
+      uniform vec2 uScalingFactor;
+      uniform vec2 uRotationVector;
 
-<script id="fragment-shader" type="x-shader/x-fragment"> 
-#ifdef GL_ES
-precision highp float;
-#endif
+      varying highp vec2 vTextureCoord;
 
-varying highp vec2 vTextureCoord;
+      void main() {
+        vec2 rotatedPosition = vec2(
+                                    aVertexPosition.x * uRotationVector.y +
+                                    aVertexPosition.y * uRotationVector.x,
+                                    aVertexPosition.y * uRotationVector.y -
+                                    aVertexPosition.x * uRotationVector.x
+                                    );
 
-uniform sampler2D uSampler;
+        gl_Position = vec4(rotatedPosition * uScalingFactor, 0.0, 1.0);
+        vTextureCoord = aTextureCoord;
+      }
+    </script>
 
-void main() {
-  gl_FragColor = texture2D(uSampler, vTextureCoord);
-}
-</script>
+    <script id="fragment-shader" type="x-shader/x-fragment">
+      #ifdef GL_ES
+      precision highp float;
+      #endif
 
-<canvas id="glcanvas" width="600" height="460">
-  Oh no! Your browser doesn't support canvas!
-</canvas>
+      varying highp vec2 vTextureCoord;
 
-<script src="index.js" type="text/javascript"></script>
+      uniform sampler2D uSampler;
+
+      void main() {
+        gl_FragColor = texture2D(uSampler, vTextureCoord);
+      }
+    </script>
+
+    <canvas id="glcanvas" <!-- width="600" height="460" -->>
+      Oh no! Your browser doesn't support canvas!
+    </canvas>
+
+    <script src="index.js" type="text/javascript"></script>
+
+  </body>

@@ -29,8 +29,10 @@ window.addEventListener("load", main, false);
 
 function main() {
     const glCanvas = document.getElementById("glcanvas");
-    glCanvas.width = document.body.clientWidth; //document.width is obsolete
-    glCanvas.height = document.body.clientHeight; //document.height is obsolete
+    glCanvas.width = document.body.clientWidth // * .979
+    ; //document.width is obsolete
+    glCanvas.height = document.body.clientHeight // * .979
+    ; //document.height is obsolete
     
     const gl = glCanvas.getContext("webgl");
     if (!gl) {
@@ -72,8 +74,8 @@ function main() {
     currentScale = [1.0, aspectRatio];
 
     // vertexArray = new Float32Array([
-    // 	    -0.5, 0.5, 0.5, 0.5, 0.5, -0.5,
-    // 	    -0.5, 0.5, 0.5, -0.5, -0.5, -0.5
+    // 	    -0.5, .5, .5, .5, .5, -0.5,
+    // 	    -0.5, .5, .5, -0.5, -0.5, -0.5
     // ]);
 
     // vertexBuffer = gl.createBuffer();
@@ -83,7 +85,7 @@ function main() {
     // vertexNumComponents = 2;
     // vertexCount = vertexArray.length/vertexNumComponents;
 
-    currentAngle = 0.0;
+    currentAngle = .0;
     rotationRate = 6;
 
     const buffers = initBuffers(gl);
@@ -94,7 +96,9 @@ function main() {
 
 function animateScene(gl, glCanvas, buffers, texture, programInfo) {
     gl.viewport(0, 0, glCanvas.width, glCanvas.height);
-    gl.clearColor(0.8, 0.9, 1.0, 1.0);
+    // gl.clearColor(0.8, .9, 1.0, 1.0);
+    // gl.clearColor(0.0, .0, .0, 1.0); // black
+    gl.clearColor(1.0, 1.0, 1.0, 1.0); // white
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     let radians = currentAngle * Math.PI / 180.0;
@@ -112,7 +116,7 @@ function animateScene(gl, glCanvas, buffers, texture, programInfo) {
 
     gl.uniform2fv(programInfo.uniformLocations.scalingFactor, currentScale);
     gl.uniform2fv(programInfo.uniformLocations.rotationVector, currentRotation);
-    // gl.uniform4fv(uGlobalColor, [0.1, 0.7, 0.2, 1.0]);
+    // gl.uniform4fv(uGlobalColor, [0.1, .7, .2, 1.0]);
 
     // gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
 
@@ -169,7 +173,7 @@ function animateScene(gl, glCanvas, buffers, texture, programInfo) {
     // Tell WebGL which indices to use to index the vertices
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.indices);
 
-        // Specify the texture to map onto the faces.
+    // Specify the texture to map onto the faces.
 
     // Tell WebGL we want to affect texture unit 0
     gl.activeTexture(gl.TEXTURE0);
@@ -204,18 +208,18 @@ function initBuffers(gl) {
     const positionBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
     const positions = [
-	-.1, -.1,
-	.1, -.1,
-	.1,  .1,
-	-.1,  .1,
+	    -.1, -.1,
+	    .1, -.1,
+	    .1,  .1,
+	    -.1,  .1,
     ];
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
 
     const textureCoordBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, textureCoordBuffer);
     const textureCoordinates = [
-	0.0,  0.0,
-	1.0,  0.0,
+	0.0,  .0,
+	1.0,  .0,
 	1.0,  1.0,
 	0.0,  1.0,
     ];
@@ -327,7 +331,7 @@ function isPowerOf2(value) {
 }
 
 // function drawScene(gl, programInfo, buffers, texture, deltaTime) {
-//     gl.clearColor(0.0, 0.0, 0.0, 1.0);  // Clear to black, fully opaque
+//     gl.clearColor(0.0, .0, .0, 1.0);  // Clear to black, fully opaque
 //     gl.clearDepth(1.0);                 // Clear everything
 //     gl.enable(gl.DEPTH_TEST);           // Enable depth testing
 //     gl.depthFunc(gl.LEQUAL);            // Near things obscure far things
@@ -340,12 +344,12 @@ function isPowerOf2(value) {
 //     // used to simulate the distortion of perspective in a camera.
 //     // Our field of view is 45 degrees, with a width/height
 //     // ratio that matches the display size of the canvas
-//     // and we only want to see objects between 0.1 units
+//     // and we only want to see objects between .1 units
 //     // and 100 units away from the camera.
 
 //     const fieldOfView = 45 * Math.PI / 180;   // in radians
 //     const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
-//     const zNear = 0.1;
+//     const zNear = .1;
 //     const zFar = 100.0;
 //     const projectionMatrix = mat4.create();
 
@@ -366,7 +370,7 @@ function isPowerOf2(value) {
 
 //     mat4.translate(modelViewMatrix,     // destination matrix
 // 		   modelViewMatrix,     // matrix to translate
-// 		   [-0.0, 0.0, -6.0]);  // amount to translate
+// 		   [-0.0, .0, -6.0]);  // amount to translate
 //     mat4.rotate(modelViewMatrix,  // destination matrix
 // 		modelViewMatrix,  // matrix to rotate
 // 		cubeRotation,     // amount to rotate in radians
