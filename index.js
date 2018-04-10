@@ -1,19 +1,71 @@
+let gl;
+let glCanvas;
+let programInfo;
+
 let aspectRatio;
-let currentRotation = [0, 1];
-let currentScale = [1.0, 1.0];
-let currentTranslation = [0, 0];
 let currentlyPressedKeys = {};
 let previousTime = 0.0;
 let degreesPerSecond = 90.0;
 
+let entities = [];
+
 window.addEventListener("load", main, false);
 
+class Entity
+{
+    constructor(pos, texUrl) {
+        this.pos = pos;
+        this.texUrl = texUrl;
+        this.vel = [0, 0];
+        this.rot = [0, 1];
+        this.angle = 0;
+        this.scale = [1, 1];
+        this.texGl = loadTexture(gl, this.texUrl);
+        this.buffers = initBuffers(gl);
+    }
+
+    update(d) {
+        let deltaAngle = d * degreesPerSecond;
+        this.angle = (this.angle + deltaAngle) % 360;
+    }
+
+    draw() {
+        let radians = this.angle * Math.PI / 180.0;
+        this.rot[0] = Math.sin(radians);
+        this.rot[1] = Math.cos(radians);
+
+        gl.useProgram(programInfo.program);
+
+        gl.uniform2fv(programInfo.uniformLocations.scalingFactor, this.scale);
+        gl.uniform2fv(programInfo.uniformLocations.rotationVector, this.rot);
+        gl.uniform2fv(programInfo.uniformLocations.translationVector, this.pos);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.position);
+        gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.buffers.textureCoord);
+        gl.vertexAttribPointer(programInfo.attribLocations.textureCoord, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(programInfo.attribLocations.textureCoord);
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buffers.indices);
+
+        gl.activeTexture(gl.TEXTURE0);
+
+        gl.bindTexture(gl.TEXTURE_2D, this.texGl);
+
+        gl.uniform1i(programInfo.uniformLocations.uSampler, 0);
+
+        gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+    }
+}
+
 function main() {
-    const glCanvas = document.getElementById("glcanvas");
+    glCanvas = document.getElementById("glcanvas");
     glCanvas.width = document.body.clientWidth;
     glCanvas.height = document.body.clientHeight;
 
-    const gl = glCanvas.getContext("webgl");
+    gl = glCanvas.getContext("webgl");
     if (!gl) {
         alert('Unable to initialize WebGL. Your browser or machine may not support it.');
         return;
@@ -35,7 +87,7 @@ function main() {
 
     shaderProgram = buildShaderProgram(gl, shaderSet);
 
-    const programInfo = {
+    programInfo = {
         program: shaderProgram,
         attribLocations: {
             vertexPosition: gl.getAttribLocation(shaderProgram, 'aVertexPosition'),
@@ -50,92 +102,42 @@ function main() {
     };
 
     aspectRatio = glCanvas.width / glCanvas.height;
-    currentRotation = [0, 1];
-    currentScale = [1.0, aspectRatio];
-
-    currentAngle = .0;
-    rotationRate = 6;
-
-    const buffers = initBuffers(gl);
-    const texture = loadTexture(gl, 'knight256.png');
 
     document.onkeydown = handleKeyDown;
     document.onkeyup = handleKeyUp;
 
+    entities.push(new Entity([0.1, 0], "knight256.png"));
+    entities.push(new Entity([-0.1, 0], "knight256.png"));
+
     window.requestAnimationFrame(function (currentTime) {
-        loop(currentTime, gl, glCanvas, buffers, texture, programInfo);
+        loop(currentTime);
     });
 
 }
 
-function loop(currentT, gl, glCanvas, buffers, texture, programInfo) {
+function loop(currentT) {
     let d = ((currentT - previousTime) / 1000.0)
     previousTime = currentT;
     update(d);
-    draw(gl, glCanvas, buffers, texture, programInfo);
+    draw();
     window.requestAnimationFrame(function (currentTime) {
-        loop(currentTime, gl, glCanvas, buffers, texture, programInfo);
+        loop(currentTime);
     });
 }
 
 function update(d) {
-    if (currentlyPressedKeys[37] == true)
-        currentTranslation[0] -= 1 * d;
-    if (currentlyPressedKeys[38] == true)
-        currentTranslation[1] += 1 * d;
-    if (currentlyPressedKeys[39] == true)
-        currentTranslation[0] += 1 * d;
-    if (currentlyPressedKeys[40] == true)
-        currentTranslation[1] -= 1 * d;
-
-    let deltaAngle = d * degreesPerSecond;
-    currentAngle = (currentAngle + deltaAngle) % 360;
-
-    if (currentlyPressedKeys[83] == true) {
-        currentScale[0] += 1 * d;
-        currentScale[1] += 1 * d;
-    }
+    for (e in entities)
+        entities[e].update(d);
 }
 
-function draw(gl, glCanvas, buffers, texture, programInfo) {
+function draw() {
     gl.viewport(0, 0, glCanvas.width, glCanvas.height);
     // gl.clearColor(0.0, .0, .0, 1.0); // black
     gl.clearColor(1.0, 1.0, 1.0, 1.0); // white
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    let radians = currentAngle * Math.PI / 180.0;
-    currentRotation[0] = Math.sin(radians);
-    currentRotation[1] = Math.cos(radians);
-
-    gl.useProgram(programInfo.program);
-
-    gl.uniform2fv(programInfo.uniformLocations.scalingFactor, currentScale);
-    gl.uniform2fv(programInfo.uniformLocations.rotationVector, currentRotation);
-    gl.uniform2fv(programInfo.uniformLocations.translationVector, currentTranslation);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
-    gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 2, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffers.textureCoord);
-    gl.vertexAttribPointer(programInfo.attribLocations.textureCoord, 2, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(programInfo.attribLocations.textureCoord);
-
-    // Tell WebGL which indices to use to index the vertices
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.indices);
-
-    // Specify the texture to map onto the faces.
-
-    // Tell WebGL we want to affect texture unit 0
-    gl.activeTexture(gl.TEXTURE0);
-
-    // Bind the texture to texture unit 0
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-
-    // Tell the shader we bound the texture to texture unit 0
-    gl.uniform1i(programInfo.uniformLocations.uSampler, 0);
-
-    gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+    for (e in entities)
+        entities[e].draw();
 }
 
 function handleKeyDown(event) {
