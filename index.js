@@ -34,6 +34,7 @@ class Entity
         this.rot[0] = Math.sin(radians);
         this.rot[1] = Math.cos(radians);
 
+        this.scale[0] = glCanvas.height / glCanvas.width;
         gl.useProgram(programInfo.program);
 
         gl.uniform2fv(programInfo.uniformLocations.scalingFactor, this.scale);
@@ -106,8 +107,8 @@ function main() {
     document.onkeydown = handleKeyDown;
     document.onkeyup = handleKeyUp;
 
-    entities.push(new Entity([0.1, 0], "knight256.png"));
-    entities.push(new Entity([-0.1, 0], "knight256.png"));
+    entities.push(new Entity([0.2, 0], "knight64.png"));
+    entities.push(new Entity([-0.2, 0], "knight256.png"));
 
     window.requestAnimationFrame(function (currentTime) {
         loop(currentTime);
