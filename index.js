@@ -1,18 +1,19 @@
 let gl;
 let glCanvas;
 let programInfo;
-
-let aspectRatio;
-let currentlyPressedKeys = {};
 let previousTime = 0.0;
-let degreesPerSecond = 90.0;
 
 let entities = [];
+let player;
+let camera;
+
+let currentlyPressedKeys = {};
+let mouseDown = false;
+let mousePos = [];
 
 window.addEventListener("load", main, false);
 
-class Entity
-{
+class Entity {
     constructor(pos, texUrl) {
         this.pos = pos;
         this.texUrl = texUrl;
@@ -25,17 +26,10 @@ class Entity
     }
 
     update(d) {
-        let deltaAngle = d * degreesPerSecond;
-        this.angle = (this.angle + deltaAngle) % 360;
     }
 
     draw() {
-        let radians = this.angle * Math.PI / 180.0;
-        this.rot[0] = Math.sin(radians);
-        this.rot[1] = Math.cos(radians);
-
         this.scale[0] = glCanvas.height / glCanvas.width;
-        gl.useProgram(programInfo.program);
 
         gl.uniform2fv(programInfo.uniformLocations.scalingFactor, this.scale);
         gl.uniform2fv(programInfo.uniformLocations.rotationVector, this.rot);
@@ -58,6 +52,67 @@ class Entity
         gl.uniform1i(programInfo.uniformLocations.uSampler, 0);
 
         gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+    }
+}
+
+class Player extends Entity {
+    constructor(pos) {
+        super(pos, "knight256.png");
+        this.move = false;
+    }
+
+    update(d) {
+        if (mouseDown == true) {
+            let cursorInWorld = screenToWorld(mousePos);
+            if (getNorm([cursorInWorld[0] - this.pos[0], cursorInWorld[1] - this.pos[1]]) > 0.01) {
+                this.targetPos = [cursorInWorld[0], cursorInWorld[1]];
+                this.vel = normalize([this.targetPos[0] - this.pos[0], this.targetPos[1] - this.pos[1]]);
+                this.rot[1] = dotProduct(this.vel, [0, 1]) / (getNorm(this.vel) * getNorm([0, 1]));
+                this.rot[0] = Math.sqrt(1 - this.rot[1] * this.rot[1]);
+                if (this.vel[0] < 0)
+                    this.rot[0] *= -1;
+                this.move = true;
+            }
+        }
+
+        if (this.move == true && Math.abs(this.targetPos[0] - this.pos[0]) < 0.011
+            && Math.abs(this.targetPos[1] - this.pos[1]) < 0.1) {
+            this.vel = [0, 0]
+            this.move = false;
+        }
+
+        this.pos = [this.pos[0] + this.vel[0] * d, this.pos[1] + this.vel[1] * d];
+    }
+}
+
+class DebugCamera extends Entity {
+    constructor() {
+        super([0, 0], "");
+    }
+
+    update(d) {
+        this.vel = [0, 0];
+        let step = 1;
+        if (currentlyPressedKeys['Control'])
+            step *= 5;
+        if (currentlyPressedKeys['ArrowUp'])
+            this.vel[1] += 1;
+        if (currentlyPressedKeys['ArrowDown'])
+            this.vel[1] -= 1;
+        if (currentlyPressedKeys['ArrowLeft'])
+            this.vel[0] -= 1;
+        if (currentlyPressedKeys['ArrowRight'])
+            this.vel[0] += 1;
+
+
+        this.vel = normalize(this.vel);
+        this.vel[0] *= step;
+        this.vel[1] *= step;
+        this.pos[0] += this.vel[0] * d;
+        this.pos[1] += this.vel[1] * d;
+    }
+
+    draw() {
     }
 }
 
@@ -98,17 +153,29 @@ function main() {
             scalingFactor: gl.getUniformLocation(shaderProgram, 'uScalingFactor'),
             rotationVector: gl.getUniformLocation(shaderProgram, 'uRotationVector'),
             translationVector: gl.getUniformLocation(shaderProgram, 'uTranslationVector'),
+            camVector: gl.getUniformLocation(shaderProgram, 'uCamVector'),
             uSampler: gl.getUniformLocation(shaderProgram, 'uSampler'),
         },
     };
 
-    aspectRatio = glCanvas.width / glCanvas.height;
-
     document.onkeydown = handleKeyDown;
     document.onkeyup = handleKeyUp;
+    glCanvas.onmousemove = onMouseMove;
+    glCanvas.onmousedown = onMouseDown;
+    glCanvas.onmouseup = onMouseUp;
 
-    entities.push(new Entity([0.2, 0], "knight64.png"));
-    entities.push(new Entity([-0.2, 0], "knight256.png"));
+    let s = 10;
+    for (i = 0; i < s; ++i)
+        for (j = 0; j < s; ++j)
+            entities.push(new Entity([i - s / 2, j - s / 2], "cross16.png"));
+
+    entities.push(new Entity([0.9, 0.9], "knight64.png"));
+    player = new Player([-0.2, 0]);
+    camera = new DebugCamera();
+    entities.push(player);
+    entities.push(camera);
+    entities.push(new DebugCamera());
+
 
     window.requestAnimationFrame(function (currentTime) {
         loop(currentTime);
@@ -137,16 +204,66 @@ function draw() {
     gl.clearColor(1.0, 1.0, 1.0, 1.0); // white
     gl.clear(gl.COLOR_BUFFER_BIT);
 
+    gl.useProgram(programInfo.program);
+    gl.uniform2fv(programInfo.uniformLocations.camVector, camera.pos);
+
     for (e in entities)
         entities[e].draw();
 }
 
+function onMouseDown(event) {
+    mouseDown = true;
+}
+
+function onMouseUp(event) {
+    mouseDown = false;
+}
+
+function onMouseMove(e) {
+    mousePos = [e.clientX, e.clientY];
+}
+
 function handleKeyDown(event) {
-    currentlyPressedKeys[event.keyCode] = true;
+    currentlyPressedKeys[event.key] = true;
 }
 
 function handleKeyUp(event) {
-    currentlyPressedKeys[event.keyCode] = false;
+    currentlyPressedKeys[event.key] = false;
+}
+
+function screenToWorld(screenPos) {
+    let w = (glCanvas.width / glCanvas.height);
+    let x = (screenPos[0] / glCanvas.width);
+    let y = (screenPos[1] / glCanvas.height);
+    x = -w + camera.pos[0] + (x * (w * 2));
+    y = -1 + camera.pos[1] + (2 - 2 * y);
+    return [x, y];
+}
+
+function dotProduct(array1, array2) {
+    let r = 0;
+    for (i in array1)
+        r += array1[i] * array2[i];
+    return r;
+}
+
+function getNorm(array) {
+    let tot = 0;
+
+    for (i in array) {
+        tot += array[i] * array[i];
+    }
+    return Math.sqrt(tot);
+}
+
+function normalize(array) {
+    let norm = getNorm(array);
+    let r = array
+    if (norm != 0) {
+        r[0] /= norm;
+        r[1] /= norm;
+    }
+    return r;
 }
 
 function initBuffers(gl) {
@@ -223,10 +340,6 @@ function compileShader(gl, id, type) {
     return shader;
 }
 
-//
-// Initialize a texture and load an image.
-// When the image finished loading copy it into the texture.
-//
 function loadTexture(gl, url) {
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);

@@ -27,6 +27,7 @@
       uniform vec2 uScalingFactor;
       uniform vec2 uRotationVector;
       uniform vec2 uTranslationVector;
+      uniform vec2 uCamVector;
 
       varying highp vec2 vTextureCoord;
 
@@ -38,7 +39,8 @@
                                     aVertexPosition.x * uRotationVector.x
                                     );
         rotatedPosition += uTranslationVector;
-      
+        rotatedPosition -= uCamVector;
+
         gl_Position = vec4(rotatedPosition * uScalingFactor, 0.0, 1.0);
         vTextureCoord = aTextureCoord;
       }
@@ -58,7 +60,7 @@
       }
     </script>
 
-    <canvas id="glcanvas" <!-- width="600" height="460" -->>
+    <canvas id="glcanvas"  width="320" height="240" >
       Oh no! Your browser doesn't support canvas!
     </canvas>
 
