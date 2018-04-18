@@ -62,7 +62,7 @@ class Player extends Entity {
     }
 
     update(d) {
-        if (mouseDown == true) {
+        if (mouseDown) {
             let cursorInWorld = screenToWorld(mousePos);
             if (getNorm([cursorInWorld[0] - this.pos[0], cursorInWorld[1] - this.pos[1]]) > 0.01) {
                 this.targetPos = [cursorInWorld[0], cursorInWorld[1]];
@@ -75,7 +75,7 @@ class Player extends Entity {
             }
         }
 
-        if (this.move == true && Math.abs(this.targetPos[0] - this.pos[0]) < 0.011
+        if (this.move && Math.abs(this.targetPos[0] - this.pos[0]) < 0.011
             && Math.abs(this.targetPos[1] - this.pos[1]) < 0.1) {
             this.vel = [0, 0]
             this.move = false;
@@ -117,6 +117,37 @@ class DebugCamera extends Entity {
 }
 
 function main() {
+    var exampleSocket = new WebSocket("ws://" + window.location.host + ":2000");
+
+    exampleSocket.onopen = function (event) {
+        exampleSocket.send("Here's some text that the server is urgently awaiting!");
+    };
+
+    exampleSocket.onmessage = function (event) {
+        order = JSON.parse(event.data);
+        for (i in order.data) {
+
+            id = order.data[i].id;
+            newPos = [order.data[i].pos.x, order.data[i].pos.y];
+            if (entities.hasOwnProperty(id)) {
+                //console.log(id.toString() + " is in game with pos " + entities[id].pos.toString() + " and newPos " + newPos.toString());
+                entities[id].pos = newPos;
+            }
+            else {
+                console.log(id.toString() + " is not in game");
+                if (order.data[i].type === "enemy1")
+                    entities[id] = new Entity(newPos, "knight64.png");
+                else if (order.data[i].type === "object1")
+                    entities[id] = new Entity(newPos, "cross16.png");
+                else {
+                    console.log("Unknown type: " + order.data[i].type)
+                    entities[id] = new Entity(newPos, "");
+                }
+
+            }
+        }
+    }
+
     glCanvas = document.getElementById("glcanvas");
     glCanvas.width = document.body.clientWidth;
     glCanvas.height = document.body.clientHeight;
@@ -131,14 +162,14 @@ function main() {
     gl.enable(gl.BLEND);
 
     const shaderSet = [
-	{
-	    type: gl.VERTEX_SHADER,
-	    id: "vertex-shader"
-	},
-	{
-	    type: gl.FRAGMENT_SHADER,
-	    id: "fragment-shader"
-	}
+    {
+        type: gl.VERTEX_SHADER,
+        id: "vertex-shader"
+    },
+    {
+        type: gl.FRAGMENT_SHADER,
+        id: "fragment-shader"
+    }
     ];
 
     shaderProgram = buildShaderProgram(gl, shaderSet);
@@ -164,17 +195,17 @@ function main() {
     glCanvas.onmousedown = onMouseDown;
     glCanvas.onmouseup = onMouseUp;
 
-    let s = 10;
-    for (i = 0; i < s; ++i)
-        for (j = 0; j < s; ++j)
-            entities.push(new Entity([i - s / 2, j - s / 2], "cross16.png"));
+    //let s = 10;
+    //for (i = 0; i < s; ++i)
+    //    for (j = 0; j < s; ++j)
+    //        entities.push(new Entity([i - s / 2, j - s / 2], "cross16.png"));
 
     entities.push(new Entity([0.9, 0.9], "knight64.png"));
+
     player = new Player([-0.2, 0]);
-    camera = new DebugCamera();
     entities.push(player);
+    camera = new DebugCamera()
     entities.push(camera);
-    entities.push(new DebugCamera());
 
 
     window.requestAnimationFrame(function (currentTime) {
@@ -259,7 +290,7 @@ function getNorm(array) {
 function normalize(array) {
     let norm = getNorm(array);
     let r = array
-    if (norm != 0) {
+    if (norm !== 0) {
         r[0] /= norm;
         r[1] /= norm;
     }
@@ -272,31 +303,31 @@ function initBuffers(gl) {
     const positionBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
     const positions = [
-	    -.1, -.1,
-	    .1, -.1,
-	    .1, .1,
-	    -.1, .1,
+        -.1, -.1,
+        .1, -.1,
+        .1, .1,
+        -.1, .1,
     ];
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
 
     const textureCoordBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, textureCoordBuffer);
     const textureCoordinates = [
-	0.0, .0,
-	1.0, .0,
-	1.0, 1.0,
-	0.0, 1.0,
+    0.0, .0,
+    1.0, .0,
+    1.0, 1.0,
+    0.0, 1.0,
     ];
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(textureCoordinates),
-		  gl.STATIC_DRAW);
+          gl.STATIC_DRAW);
 
     const indexBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
     const indices = [
-	0, 1, 2, 0, 2, 3,    // front
+    0, 1, 2, 0, 2, 3,    // front
     ];
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,
-		  new Uint16Array(indices), gl.STATIC_DRAW);
+          new Uint16Array(indices), gl.STATIC_DRAW);
 
     return {
         position: positionBuffer,
@@ -358,8 +389,8 @@ function loadTexture(gl, url) {
     const srcType = gl.UNSIGNED_BYTE;
     const pixel = new Uint8Array([0, 0, 255, 255]);  // opaque blue
     gl.texImage2D(gl.TEXTURE_2D, level, internalFormat,
-		  width, height, border, srcFormat, srcType,
-		  pixel);
+          width, height, border, srcFormat, srcType,
+          pixel);
 
     const image = new Image();
     image.onload = function () {
@@ -387,5 +418,5 @@ function loadTexture(gl, url) {
 }
 
 function isPowerOf2(value) {
-    return (value & (value - 1)) == 0;
+    return (value & (value - 1)) === 0;
 }
