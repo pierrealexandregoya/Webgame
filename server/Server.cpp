@@ -5,7 +5,7 @@
 
 #include "WsConn.hpp"
 #include "Entity.hpp"
-#include "server.hpp"
+#include "Server.hpp"
 
 Server::Server(unsigned int port)
     : timeSpan_(static_cast<int>(TS))

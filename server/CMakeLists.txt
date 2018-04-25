@@ -14,7 +14,7 @@ set (SRC
     main.cpp
     Entity.hpp
     Entity.cpp
-    server.cpp
+    Server.cpp
     Server.hpp
     WsConn.hpp
     WsConn.cpp

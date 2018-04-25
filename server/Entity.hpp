@@ -1,6 +1,6 @@
 #pragma once
 
-#include "server.hpp"
+#include "Server.hpp"
 
 class Entity
 {
