@@ -16,9 +16,10 @@ Entity::Entity(Array2 const& pos, Array2 const& vel, std::string const& type)
 void Entity::update(float d)
 {
     if (rand() % 2 == 0)
-        pos_ += vel_ * d;
-    else
-        pos_ -= vel_ * d;
+        vel_ *= -1;
+
+    pos_ += vel_ * d;
+
 }
 
 VecType const& Entity::pos() const

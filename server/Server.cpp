@@ -12,6 +12,7 @@ Server::Server(unsigned int port)
     , io_context_()
     , acceptor_(io_context_, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v6(), port))
     , t_(io_context_, timeSpan_)
+    , socket_(io_context_)
 {
     Entity enemy1 = Entity({ 0.5f, 0.5f }, { -0.1f, -0.1f }, "enemy1");
     entities_.insert(std::make_pair(enemy1.id(), enemy1));
@@ -27,18 +28,17 @@ Server::Server(unsigned int port)
 
 void Server::start_accept()
 {
-    boost::asio::ip::tcp::socket *socket = new boost::asio::ip::tcp::socket(acceptor_.get_executor().context());
-    acceptor_.async_accept(*socket, boost::bind(&Server::on_accept, this, socket, boost::asio::placeholders::error));
+    acceptor_.async_accept(socket_, boost::bind(&Server::on_accept, this, boost::asio::placeholders::error));
 }
 
-void Server::on_accept(boost::asio::ip::tcp::socket *socket,
-    const boost::system::error_code& error)
+void Server::on_accept(const boost::system::error_code& error)
 {
     if (error)
-        return Server::fail(error, "TcpServer::on_accept");
+        return fail(error, "TcpServer::on_accept");
+    
+    std::cout << "New connection: " << socket_.remote_endpoint().address().to_string() << std::endl;
 
-    WsConn::pointer new_connection = WsConn::create(acceptor_.get_executor().context(), *socket);
-    delete socket;
+    WsConn::pointer new_connection = WsConn::create(socket_);
     conns_.push_back(new_connection);
     new_connection->start();
 
@@ -61,7 +61,7 @@ void Server::run()
     }
 }
 
-void Server::fail(boost::system::error_code ec, char const* what)
+void fail(boost::system::error_code ec, char const* what)
 {
     std::cerr << what << ": " << ec.message() << "\n";
 }

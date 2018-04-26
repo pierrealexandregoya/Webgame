@@ -22,18 +22,18 @@ private:
     bool                                                            isWriting;
 
 public:
-    static pointer  create(boost::asio::io_context& io_context, boost::asio::ip::tcp::socket &socket);
+    static pointer  create(boost::asio::ip::tcp::socket &socket);
 
     void            start();
     void            write(std::string const& msg);
     SocketType&     socket();
 
 private:
-    WsConn(boost::asio::io_context& io_context, boost::asio::ip::tcp::socket &socket);
+    WsConn(boost::asio::ip::tcp::socket &socket);
 
     void writeNext();
     void on_accept(boost::system::error_code ec);
     void do_read();
     void on_read(const boost::system::error_code& error, size_t bytes_transferred);
-    void on_write(boost::system::error_code ec, std::size_t bytes_transferred);
+    //void on_write(boost::system::error_code ec, std::size_t bytes_transferred);
 };

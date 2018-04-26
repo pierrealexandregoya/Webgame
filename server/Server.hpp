@@ -25,9 +25,9 @@ private:
     boost::asio::chrono::milliseconds   timeSpan_;
     std::map<int, Entity>               entities_;
     boost::asio::steady_timer           t_;
+    boost::asio::ip::tcp::socket        socket_;
 
 public:
-    static void fail(boost::system::error_code ec, char const* what);
     static boost::property_tree::ptree vecToPtree(VecType const& v);
 
     Server(unsigned int port);
@@ -37,5 +37,7 @@ public:
 
 private:
     void start_accept();
-    void on_accept(boost::asio::ip::tcp::socket *socket, const boost::system::error_code& error);
+    void on_accept(const boost::system::error_code& error);
 };
+
+void fail(boost::system::error_code ec, char const* what);

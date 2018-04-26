@@ -26,6 +26,12 @@ class Entity {
     }
 
     update(d) {
+        if (Math.abs(getNorm(this.vel)) > Number.EPSILON) {
+            this.rot[1] = dotProduct(this.vel, [0, 1]) / (getNorm(this.vel) * getNorm([0, 1]));
+            this.rot[0] = Math.sqrt(1 - this.rot[1] * this.rot[1]);
+            if (this.vel[0] < 0)
+                this.rot[0] *= -1;
+        }
     }
 
     draw() {
@@ -67,10 +73,6 @@ class Player extends Entity {
             if (getNorm([cursorInWorld[0] - this.pos[0], cursorInWorld[1] - this.pos[1]]) > 0.01) {
                 this.targetPos = [cursorInWorld[0], cursorInWorld[1]];
                 this.vel = normalize([this.targetPos[0] - this.pos[0], this.targetPos[1] - this.pos[1]]);
-                this.rot[1] = dotProduct(this.vel, [0, 1]) / (getNorm(this.vel) * getNorm([0, 1]));
-                this.rot[0] = Math.sqrt(1 - this.rot[1] * this.rot[1]);
-                if (this.vel[0] < 0)
-                    this.rot[0] *= -1;
                 this.move = true;
             }
         }
@@ -82,6 +84,7 @@ class Player extends Entity {
         }
 
         this.pos = [this.pos[0] + this.vel[0] * d, this.pos[1] + this.vel[1] * d];
+        super.update();
     }
 }
 
@@ -128,13 +131,16 @@ function main() {
         for (i in order.data) {
 
             id = order.data[i].id;
+
+            //console.log(order.data[i]);
+
             newPos = [order.data[i].pos.x, order.data[i].pos.y];
+            newVel = [order.data[i].vel.x, order.data[i].vel.y];
             if (entities.hasOwnProperty(id)) {
                 //console.log(id.toString() + " is in game with pos " + entities[id].pos.toString() + " and newPos " + newPos.toString());
                 entities[id].pos = newPos;
             }
             else {
-                console.log(id.toString() + " is not in game");
                 if (order.data[i].type === "enemy1")
                     entities[id] = new Entity(newPos, "knight64.png");
                 else if (order.data[i].type === "object1")
@@ -145,6 +151,8 @@ function main() {
                 }
 
             }
+            entities[id].vel = newVel;
+
         }
     }
 
