@@ -18,10 +18,10 @@ function init() {
     initInputs();
     initNetwork();
 
-    player = new Player([-0.5, -0.5]);
-    entities.push(player);
+    player = new Player([0, 0]);
+    entities[-1] = player;
     camera = new DebugCamera()
-    entities.push(camera);
+    entities[-2] = camera;
 
     window.requestAnimationFrame(function (currentTime) {
         loop(currentTime);
@@ -32,6 +32,7 @@ function init() {
 function loop(currentT) {
     let d = ((currentT - previousTime) / 1000.0)
     previousTime = currentT;
+    sync();
     update(d);
     draw();
     window.requestAnimationFrame(function (currentTime) {

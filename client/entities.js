@@ -1,6 +1,7 @@
 class Entity {
     constructor(pos, texUrl) {
         this.pos = pos;
+        this.targetPos = pos;
         this.texUrl = texUrl;
         this.vel = [0, 0];
         this.rot = [0, 1];
@@ -11,6 +12,10 @@ class Entity {
     }
 
     update(d) {
+        // testing conflicts with server for pos update
+        //if (getNorm(this.vel) > Number.epsilon)
+
+
         if (Math.abs(getNorm(this.vel)) > Number.EPSILON) {
             this.rot[1] = dotProduct(this.vel, [0, 1]) / (getNorm(this.vel) * getNorm([0, 1]));
             this.rot[0] = Math.sqrt(1 - this.rot[1] * this.rot[1]);
@@ -50,22 +55,41 @@ class Player extends Entity {
     constructor(pos) {
         super(pos, "knight256.png");
         this.move = false;
+        this.nbMove = 0;
+    }
+
+    stop(nbMove) {
+        if (nbMove != this.nbMove)
+            return;
+        console.log("stop");
+        this.vel = [0, 0]
+        this.move = false;
+        syncNeeded = true;
     }
 
     update(d) {
         if (mouseDown) {
             let cursorInWorld = screenToWorld(mousePos);
-            if (getNorm([cursorInWorld[0] - this.pos[0], cursorInWorld[1] - this.pos[1]]) > 0.01) {
+            // If new target if far enough from old one AND if new target if far enough from player
+            if (getNorm([this.targetPos[0] - cursorInWorld[0], this.targetPos[1] - cursorInWorld[1]]) > 0.1
+                && getNorm([cursorInWorld[0] - this.pos[0], cursorInWorld[1] - this.pos[1]]) > 0.01) {
                 this.targetPos = [cursorInWorld[0], cursorInWorld[1]];
                 this.vel = normalize([this.targetPos[0] - this.pos[0], this.targetPos[1] - this.pos[1]]);
                 this.move = true;
+                this.nbMove += 1;
+                syncNeeded = true;
+                let self = this;
+                let nbMove = this.nbMove;
+                window.setTimeout(function () {
+                    console.log(`stop ${nbMove}?`);
+                    self.stop(nbMove)
+                }, getNorm([this.targetPos[0] - this.pos[0], this.targetPos[1] - this.pos[1]]) * 1000);
             }
         }
 
         if (this.move && Math.abs(this.targetPos[0] - this.pos[0]) < 0.011
             && Math.abs(this.targetPos[1] - this.pos[1]) < 0.1) {
-            this.vel = [0, 0]
-            this.move = false;
+            stop(this.nbMove);
         }
 
         this.pos = [this.pos[0] + this.vel[0] * d, this.pos[1] + this.vel[1] * d];

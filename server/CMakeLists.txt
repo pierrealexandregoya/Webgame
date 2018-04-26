@@ -18,10 +18,16 @@ set (SRC
     Server.hpp
     WsConn.hpp
     WsConn.cpp
+    Behavior.hpp
+    Behavior.cpp
 )
 
 include_directories(${Boost_INCLUDE_DIRS})
 
+if(CMAKE_COMPILER_IS_GNUCXX)
+    add_definitions(-std=c++1z)
+  endif()
+  
 if(WIN32)
 	add_definitions(-DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 -D_SCL_SECURE_NO_WARNINGS)
 endif()
