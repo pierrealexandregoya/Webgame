@@ -1,7 +1,7 @@
 #include <boost/bind.hpp>
 
 #include "WsConn.hpp"
-#include "server.hpp"
+#include "Server.hpp"
 
 void WsConn::start()
 {
