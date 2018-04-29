@@ -38,7 +38,7 @@ public:
 private:
     void writeNext();
     void on_accept(boost::system::error_code ec);
-    void on_close(const boost::system::error_code& ec);
+    void on_close();
     void do_read();
     void on_read(const boost::system::error_code& error, size_t bytes_transferred);
     //void on_write(boost::system::error_code ec, std::size_t bytes_transferred);

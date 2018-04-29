@@ -10,7 +10,9 @@ function updatePlayerFromServer(id, pos, vel) {
 }
 
 function initNetwork() {
-    socket = new WebSocket("ws://" + window.location.host + ":2000");
+    if (typeof port === 'undefined' || port === null)
+	port = 2000;
+    socket = new WebSocket("ws://" + window.location.host + ":" + port);
 
     socket.onopen = function (event) {
         //socket.send("Here's some text that the server is urgently awaiting!");

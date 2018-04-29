@@ -89,16 +89,15 @@ void WsConn::on_accept(boost::system::error_code ec)
     do_read();
 }
 
-void WsConn::on_close(const boost::system::error_code& ec)
+void WsConn::on_close()
 {
-  std::cout << addrStr_ << " SESSION CLOSED" << (ec ? ": " + ec.message() : "") << std::endl;
+  std::cout << addrStr_ << " SESSION CLOSED" << std::endl;
   closed_ = true;
 }
 
 void WsConn::do_read()
 {
-    std::cout << addrStr_ << " " << "READING" << std::endl;
-    std::istringstream issTmp;
+    std::cout << addrStr_ << " READING" << std::endl;
     socket_.async_read(readBuf_, boost::bind(&WsConn::on_read, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
 }
 
@@ -107,17 +106,12 @@ void WsConn::on_read(const boost::system::error_code& ec, size_t bytes_transferr
     if (ec == boost::beast::websocket::error::closed)
     {
         std::cout << addrStr_ << " READ: SESSION CLOSED" << std::endl;
-// 	socket_.async_close(boost::beast::websocket::close_code::normal, 
-// 	[&](const boost::system::error_code& ec) {
-// -            std::cout << addrStr_ << " SESSION CLOSED" << (ec ? ": " + ec.message() : "") << std::endl;
-// -            closed_ = true;
-// -        });
-//         return;
+	socket_.async_close(boost::beast::websocket::close_code::normal, std::bind(&WsConn::on_close, shared_from_this()));
     }
     if (ec)
     {
         std::cout << addrStr_ << " READ ERROR: " << ec.message() << std::endl;
-        // socket_.async_close(boost::beast::websocket::close_code::abnormal, on_close);
+        // socket_.async_close(boost::beast::websocket::close_code::abnormal, std::bind(&WsConn::on_close, shared_from_this()));
         return;
     }
     std::cout << addrStr_ << " READ " << bytes_transferred << " BYTES:"/* << std::endl*/;

@@ -1,8 +1,11 @@
 #include "Server.hpp"
 
-int main()
+int main(int ac, char **av)
 {
-    Server server(2000);
+    unsigned short port = 2000;
+    if (ac >= 2)
+	port = std::atoi(av[1]);
+    Server server(port);
     server.run();
 
     return 0;
