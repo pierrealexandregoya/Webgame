@@ -20,6 +20,9 @@ set (SRC
     WsConn.cpp
     Behavior.hpp
     Behavior.cpp
+    types.hpp
+    Env.hpp
+    Env.cpp
 )
 
 include_directories(${Boost_INCLUDE_DIRS})

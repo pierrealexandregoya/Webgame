@@ -1,17 +1,19 @@
 #pragma once
 
-#include <string>
 #include <queue>
+#include <string>
+
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <boost/enable_shared_from_this.hpp>
 
+#include "types.hpp"
+
 class Entity;
 
-class WsConn : public boost::enable_shared_from_this<WsConn>
+class WsConn : public std::enable_shared_from_this<WsConn>
 {
 public:
-    typedef boost::shared_ptr<WsConn>                                       pointer;
     typedef boost::beast::websocket::stream<boost::asio::ip::tcp::socket>   SocketType;
 
 private:
@@ -23,17 +25,19 @@ private:
     std::queue<boost::beast::multi_buffer::mutable_buffers_type>    toWrite_;
     boost::beast::multi_buffer                                      buffer_;
     bool                                                            isWriting;
-    Entity                                                          &playerEntity_;
+    P<Entity>                                                       playerEntity_;
     bool                                                            closed_;
 
-public:
-    WsConn(boost::asio::ip::tcp::socket &socket, Entity &playerEntity);
+    NON_MOVABLE_OR_COPYABLE(WsConn);
 
-    void            start();
-    void            write(std::string const& msg);
-    SocketType&     socket();
-    bool            isClosed() const;
-    Entity const&   playerEntity() const;
+public:
+    WsConn(boost::asio::ip::tcp::socket &socket, P<Entity> const& playerEntity);
+
+    void                            start();
+    void                            write(std::string const& msg);
+    SocketType&                     socket();
+    bool                            isClosed() const;
+    P<Entity> const&  playerEntity() const;
 
 private:
     void writeNext();
@@ -41,5 +45,4 @@ private:
     void on_close();
     void do_read();
     void on_read(const boost::system::error_code& error, size_t bytes_transferred);
-    //void on_write(boost::system::error_code ec, std::size_t bytes_transferred);
 };

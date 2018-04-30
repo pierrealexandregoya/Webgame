@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
   
   <head>
@@ -20,56 +20,58 @@
   </head>
   
   <body>
-    <script id="vertex-shader" type="x-shader/x-vertex">
-      attribute vec2 aVertexPosition;
-      attribute vec2 aTextureCoord;
+      <script id="vertex-shader" type="x-shader/x-vertex">
+          attribute vec2 aVertexPosition;
+          attribute vec2 aTextureCoord;
 
-      uniform vec2 uScalingFactor;
-      uniform vec2 uRotationVector;
-      uniform vec2 uTranslationVector;
-      uniform vec2 uCamVector;
+          uniform vec2 uScalingFactor;
+          uniform vec2 uRotationVector;
+          uniform vec2 uTranslationVector;
+          uniform vec2 uCamVector;
 
-      varying highp vec2 vTextureCoord;
+          varying highp vec2 vTextureCoord;
 
-      void main() {
-        vec2 rotatedPosition = vec2(
-                                    aVertexPosition.x * uRotationVector.y +
-                                    aVertexPosition.y * uRotationVector.x,
-                                    aVertexPosition.y * uRotationVector.y -
-                                    aVertexPosition.x * uRotationVector.x
-                                    );
-        rotatedPosition += uTranslationVector;
-        rotatedPosition -= uCamVector;
+          void main() {
+          vec2 rotatedPosition = vec2(
+          aVertexPosition.x * uRotationVector.y +
+          aVertexPosition.y * uRotationVector.x,
+          aVertexPosition.y * uRotationVector.y -
+          aVertexPosition.x * uRotationVector.x
+          );
+          rotatedPosition += uTranslationVector;
+          rotatedPosition -= uCamVector;
 
-        gl_Position = vec4(rotatedPosition * uScalingFactor, 0.0, 1.0);
-        vTextureCoord = aTextureCoord;
-      }
-    </script>
+          gl_Position = vec4(rotatedPosition * uScalingFactor, 0.0, 1.0);
+          vTextureCoord = aTextureCoord;
+          }
+      </script>
 
-    <script id="fragment-shader" type="x-shader/x-fragment">
-      #ifdef GL_ES
-      precision highp float;
-      #endif
+      <script id="fragment-shader" type="x-shader/x-fragment">
+          #ifdef GL_ES
+          precision highp float;
+          #endif
 
-      varying highp vec2 vTextureCoord;
+          varying highp vec2 vTextureCoord;
 
-      uniform sampler2D uSampler;
+          uniform sampler2D uSampler;
 
-      void main() {
-        gl_FragColor = texture2D(uSampler, vTextureCoord);
-      }
-    </script>
+          void main() {
+          gl_FragColor = texture2D(uSampler, vTextureCoord);
+          }
+      </script>
 
-    <canvas id="glcanvas"  width="320" height="240" >
-      Oh no! Your browser doesn't support canvas!
-    </canvas>
+      <canvas id="glcanvas" width="320" height="240">
+          Oh no! Your browser doesn't support canvas!
+      </canvas>
 
-    <script src="vars.js" type="text/javascript"></script>
-    <script src="inputs.js" type="text/javascript"></script>
-    <script src="network.js" type="text/javascript"></script>
-    <script src="vectors.js" type="text/javascript"></script>
-    <script src="utils.js" type="text/javascript"></script>
-    <script src="entities.js" type="text/javascript"></script>
-    <script src="main.js" type="text/javascript"></script>
+      <script src="vars.js" type="text/javascript"></script>
+      <script src="inputs.js" type="text/javascript"></script>
+      <script src="network.js" type="text/javascript"></script>
+      <script src="vectors.js" type="text/javascript"></script>
+      <script src="utils.js" type="text/javascript"></script>
+      <script src="entity.js" type="text/javascript"></script>
+      <script src="player.js" type="text/javascript"></script>
+      <script src="debug.js" type="text/javascript"></script>
+      <script src="main.js" type="text/javascript"></script>
 
   </body>

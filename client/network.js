@@ -47,17 +47,18 @@ function initNetwork() {
                     newPos = [order.data[i].pos.x, order.data[i].pos.y];
                     newVel = [order.data[i].vel.x, order.data[i].vel.y];
                     if (entities.hasOwnProperty(id)) {
-                        //console.log(id.toString() + " is in game with pos " + entities[id].pos.toString() + " and newPos " + newPos.toString());
+                        //console.log(id.toString() + " IS in game with pos " + entities[id].pos.toString() + " and newPos " + newPos.toString());
                         entities[id].pos = newPos;
                     }
                     else {
+                        console.log(id.toString() + " is NOT in game with pos " + newPos.toString());
                         if (order.data[i].type === "npc1")
                             entities[id] = new Entity(newPos, "knight64b.png");
                         else if (order.data[i].type === "player" && id !== player.id)
                             entities[id] = new Entity(newPos, "knight64g.png");
                         else if (order.data[i].type === "player" && id === player.id)
-                                ;
-                            //entities[id] = new Entity(newPos, "knight64r.png");
+                                //;
+                            entities[id] = new Entity(newPos, "knight64r.png");
                         else if (order.data[i].type === "object1")
                             entities[id] = new Entity(newPos, "cross16.png");
                         else {

@@ -1,45 +1,46 @@
 #pragma once
 
-#include <string>
 #include <array>
 #include <list>
-#include <boost/numeric/ublas/vector.hpp>
-#include <boost/system/error_code.hpp>
+#include <string>
+
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/property_tree/ptree.hpp>
+#include <boost/system/error_code.hpp>
 
-#include "WsConn.hpp"
+#include "types.hpp"
 
-typedef boost::numeric::ublas::vector<float> VecType;
-typedef std::array<float, 3> Array2;
-
-#include "Entity.hpp"
+class WsConn;
+class Entity;
 
 class Server
 {
 private:
-    boost::asio::io_context             io_context_;
+    Connections                             conns_;
+    P<Entities>                             entities_;
 
-    boost::asio::ip::tcp::acceptor      acceptor_;
-    std::map<int, WsConn::pointer>      conns_;
-    boost::asio::chrono::milliseconds   timeSpan_;
-    std::map<int, Entity>               entities_;
-    boost::asio::steady_timer           t_;
-    boost::asio::ip::tcp::socket        socket_;
+    boost::asio::io_context                 io_context_;
+    boost::asio::ip::tcp::acceptor          acceptor_;
+    boost::asio::ip::tcp::socket            socket_;
+
+    boost::asio::chrono::milliseconds       timeSpan_;
+    boost::asio::steady_timer               t_;
+
+    NON_MOVABLE_OR_COPYABLE(Server);
 
 public:
     static boost::property_tree::ptree vecToPtree(VecType const& v);
 
     Server(unsigned int port);
 
-    void run();
-    static boost::property_tree::ptree entityToPtree(Entity const& e);
-    std::string entitiesToJson();
-    void loop(const boost::system::error_code& /*e*/);
-
+    void                                run();
+    void                                loop(const boost::system::error_code& e);
+    static boost::property_tree::ptree  entityToPtree(P<Entity> const& e);
+    std::string                         entitiesToJson();
 private:
-    void start_accept();
-    void on_accept(const boost::system::error_code& error);
-    void addEntity(Entity &&e);
+    void        start_accept();
+    void        on_accept(const boost::system::error_code& error);
+    P<Entity>   addEntity(Array2 const& pos, Array2 const& vel, float speed, std::string const& type, Behaviors && behaviors=Behaviors());
 };
-
-//void fail(boost::system::error_code ec, char const* what);

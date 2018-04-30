@@ -1,26 +1,17 @@
+#include "WsConn.hpp"
+
 #include <ctype.h>
+#include <numeric>
 #include <sstream>
 
 #include <boost/bind.hpp>
 #include <boost/property_tree/json_parser.hpp>
-#include <numeric>
 
-#include "WsConn.hpp"
-#include "Server.hpp"
 #include "Entity.hpp"
+#include "Server.hpp"
+#include "types.hpp"
 
-void WsConn::start()
-{
-    std::cout << addrStr_ << " " << "HANDSHAKING" << std::endl;
-    socket_.async_accept(boost::asio::bind_executor(strand_, std::bind(&WsConn::on_accept, shared_from_this(), std::placeholders::_1)));
-}
-
-//WsConn::pointer WsConn::create(boost::asio::ip::tcp::socket &socket, /*shared_ptr?*/Entity &entity)
-//{
-//    return pointer(new WsConn(socket, entity));
-//}
-
-WsConn::WsConn(boost::asio::ip::tcp::socket &socket, /* shared_ptr? */ Entity &entity)
+WsConn::WsConn(boost::asio::ip::tcp::socket &socket, P<Entity> const& entity)
     : addrStr_("[" + socket.remote_endpoint().address().to_string() + "]:" + std::to_string(socket.remote_endpoint().port()))
     , socket_(std::move(socket))
     , strand_(socket_.get_executor())
@@ -29,6 +20,14 @@ WsConn::WsConn(boost::asio::ip::tcp::socket &socket, /* shared_ptr? */ Entity &e
     , closed_(false)
 {
     std::cout << addrStr_ << " " << "CONNECTED" << std::endl;
+}
+
+void WsConn::start()
+{
+    std::cout << addrStr_ << " " << "HANDSHAKING" << std::endl;
+    std::cout << shared_from_this().use_count() << std::endl;
+    std::cout << shared_from_this().use_count() << std::endl;
+    socket_.async_accept(boost::asio::bind_executor(strand_, std::bind(&WsConn::on_accept, shared_from_this(), std::placeholders::_1)));
 }
 
 WsConn::SocketType& WsConn::socket()
@@ -41,7 +40,7 @@ bool WsConn::isClosed() const
     return closed_;
 }
 
-Entity const& WsConn::playerEntity() const
+P<Entity> const& WsConn::playerEntity() const
 {
     return playerEntity_;
 }
@@ -64,6 +63,7 @@ void WsConn::writeNext()
         return;
     auto bufs = toWrite_.front();
     toWrite_.pop();
+    socket_.text(true);
     socket_.async_write(bufs, boost::asio::bind_executor(strand_, [&](boost::system::error_code e, std::size_t bytes_transferred) {
         //std::cout << bytes_transferred << std::endl;
         isWriting = false;
@@ -91,8 +91,8 @@ void WsConn::on_accept(boost::system::error_code ec)
 
 void WsConn::on_close()
 {
-  std::cout << addrStr_ << " SESSION CLOSED" << std::endl;
-  closed_ = true;
+    std::cout << addrStr_ << " SESSION CLOSED" << std::endl;
+    closed_ = true;
 }
 
 void WsConn::do_read()
@@ -106,12 +106,12 @@ void WsConn::on_read(const boost::system::error_code& ec, size_t bytes_transferr
     if (ec == boost::beast::websocket::error::closed)
     {
         std::cout << addrStr_ << " READ: SESSION CLOSED" << std::endl;
-	socket_.async_close(boost::beast::websocket::close_code::normal, std::bind(&WsConn::on_close, shared_from_this()));
+        socket_.async_close(boost::beast::websocket::close_code::normal, std::bind(&WsConn::on_close, shared_from_this()));
     }
     if (ec)
     {
         std::cout << addrStr_ << " READ ERROR: " << ec.message() << std::endl;
-        // socket_.async_close(boost::beast::websocket::close_code::abnormal, std::bind(&WsConn::on_close, shared_from_this()));
+         socket_.async_close(boost::beast::websocket::close_code::abnormal, std::bind(&WsConn::on_close, shared_from_this()));
         return;
     }
     std::cout << addrStr_ << " READ " << bytes_transferred << " BYTES:"/* << std::endl*/;
@@ -147,9 +147,9 @@ void WsConn::on_read(const boost::system::error_code& ec, size_t bytes_transferr
             std::string suborder = ptree.get<std::string>("suborder");
             if (suborder == "player")
             {
-                playerEntity_.setVel(Array2({ ptree.get<float>("vel.x"), ptree.get<float>("vel.y") }));
-                if (fabsf(boost::numeric::ublas::norm_2(playerEntity_.vel())) > std::numeric_limits<float>::epsilon())
-                    playerEntity_.setVel(VecType(playerEntity_.vel() / boost::numeric::ublas::norm_2(playerEntity_.vel())));
+                playerEntity_->setVel(Array2({ ptree.get<float>("vel.x"), ptree.get<float>("vel.y") }));
+                if (fabsf(boost::numeric::ublas::norm_2(playerEntity_->vel())) > std::numeric_limits<float>::epsilon())
+                    playerEntity_->setVel(VecType(playerEntity_->vel() / boost::numeric::ublas::norm_2(playerEntity_->vel())));
             }
         }
     }
@@ -160,21 +160,5 @@ void WsConn::on_read(const boost::system::error_code& ec, size_t bytes_transferr
         std::cerr << addrStr_ << "READ: EXCEPTION THROWN" << std::endl;
     }
     do_read();
-    /*socket_.text(socket_.got_text());
-    socket_.async_write(readBuf_.data(), boost::asio::bind_executor(strand_, std::bind(&WsConn::on_write, shared_from_this(), std::placeholders::_1, std::placeholders::_2)));*/
 }
 
-//void WsConn::on_write(boost::system::error_code ec, std::size_t bytes_transferred)
-//{
-//    if (ec)
-//    {
-//        std::cerr << "WsConn::on_write" << ": " << ec.message() << "\n";
-//        return;
-//    }
-//
-//    // Clear the buffer
-//    readBuf_.consume(readBuf_.size());
-//
-//    // Do another read
-//    do_read();
-//}

@@ -2,20 +2,66 @@
 
 #include <map>
 
-#include "Entity.hpp"
+#include "Env.hpp"
+#include "types.hpp"
+
+class Entity;
 
 class Behavior
 {
+private:
+    //static 
+protected:
+    Entity  *self_;
+    bool    resolved_;
+
+    NON_MOVABLE_OR_COPYABLE(Behavior);
+
+//public:
+//    template<class T>
+//    static P<Behavior> create()
+//    {
+//        return MP<
+//    }
+//
+protected:
+    Behavior();
+
 public:
-    virtual void update(Entity &self, std::map<int, Entity> &others, float delta) = 0;
+    void setSelf(Entity *self);
+
+public:
+    virtual bool update(float delta, Env &env) = 0;
 };
-typedef std::shared_ptr<Behavior> BehaviorPtr;
 
 class Walk : public Behavior
 {
 private:
     float t_;
+
+    NON_MOVABLE_OR_COPYABLE(Walk);
+
 public:
     Walk();
-    void update(Entity &self, std::map<int, Entity> &others, float delta);
+    bool update(float delta, Env &env) override;
+};
+
+class AreaLimit: public Behavior
+{
+public:
+    enum AreaType
+    {
+        Square,
+        Circle,
+    };
+
+private:
+    AreaType    areaType_;
+    int         size_;
+
+    NON_MOVABLE_OR_COPYABLE(AreaLimit);
+
+public:
+    AreaLimit(AreaType type, int size);
+    bool update(float delta, Env &env) override;
 };
