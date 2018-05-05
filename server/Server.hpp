@@ -31,7 +31,7 @@ private:
     NON_MOVABLE_OR_COPYABLE(Server);
 
 public:
-    static boost::property_tree::ptree vecToPtree(VecType const& v);
+    static boost::property_tree::ptree vecToPtree(Vector const& v);
 
     Server(unsigned int port);
 
@@ -42,5 +42,5 @@ public:
 private:
     void        start_accept();
     void        on_accept(const boost::system::error_code& error);
-    P<Entity>   addEntity(Array2 const& pos, Array2 const& vel, float speed, std::string const& type, Behaviors && behaviors=Behaviors());
+    P<Entity>   addEntity(Vector const& pos, Vector const& dir, float speed, std::string const& type, Behaviors && behaviors=Behaviors());
 };

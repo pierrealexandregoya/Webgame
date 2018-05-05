@@ -10,6 +10,7 @@
 #include "Behavior.hpp"
 #include "Entity.hpp"
 #include "WsConn.hpp"
+#include "Env.hpp"
 
 #define                                 TS (1000.f / 20)
 
@@ -21,14 +22,13 @@ Server::Server(unsigned int port)
     , timeSpan_(static_cast<int>(TS))
     , t_(io_context_, timeSpan_)
 {
-    //// First NPC
     addEntity({ 0.5f, 0.5f }, { -0.1f, -0.1f }, 1.f, "npc1", Behaviors({ {1.f, MP<Walk>()}, {0.f, MP<AreaLimit>(AreaLimit::Square, 1)} }));
 
     //// 100 static objects centered at 0,0
     const int s = 10;
     for (int i = 0; i < s; ++i)
         for (int j = 0; j < s; ++j)
-            addEntity({ i - s / 2.f , j - s / 2.f }, { 0, 0 }, 0.f, "object1");
+            addEntity({ i - s / 2.f , j - s / 2.f }, { 0.f, 0.f }, 0.f, "object1");
 }
 
 void Server::loop(const boost::system::error_code& /*e*/)
@@ -115,10 +115,9 @@ void Server::on_accept(const boost::system::error_code& ec)
         return;
     }
 
-    auto e = addEntity({ 0, 0 }, { 0, 0 }, 1.f, "player");
+    auto e = addEntity({ 0.f, 0.f }, { 0.f, 0.f }, 1.f, "player");
     auto new_connection = MP<WsConn>(std::ref(socket_), e);
     std::cout << new_connection.use_count() << std::endl;
-    //auto new_connection = std::make_shared<WsConn>(socket_, e);
     assert(conns_.insert({ e->id(), new_connection }).second);
     std::cout << new_connection.use_count() << std::endl;
 
@@ -127,7 +126,7 @@ void Server::on_accept(const boost::system::error_code& ec)
     start_accept();
 }
 
-boost::property_tree::ptree Server::vecToPtree(VecType const& v)
+boost::property_tree::ptree Server::vecToPtree(Vector const& v)
 {
     boost::property_tree::ptree vecNode;
     vecNode.put("x", v[0]);
@@ -141,7 +140,7 @@ boost::property_tree::ptree Server::entityToPtree(P<Entity> const& e)
     ptEntity.put("id", e->id());
     ptEntity.put("type", e->type());
     ptEntity.add_child("pos", vecToPtree(e->pos()));
-    ptEntity.add_child("vel", vecToPtree(e->vel()));
+    ptEntity.add_child("vel", vecToPtree(e->dir()));
     return ptEntity;
 }
 
@@ -163,9 +162,9 @@ std::string Server::entitiesToJson()
     return ss.str();
 }
 
-P<Entity> Server::addEntity(Array2 const& pos, Array2 const& vel, float speed, std::string const& type, Behaviors && behaviors)
+P<Entity> Server::addEntity(Vector const& pos, Vector const& dir, float speed, std::string const& type, Behaviors && behaviors)
 {
-    P<Entity> e = std::make_shared<Entity>(pos, vel, speed, type, std::move(behaviors));
+    P<Entity> e = std::make_shared<Entity>(pos, dir, speed, type, std::move(behaviors));
     auto r = entities_->insert(std::make_pair(e->id(), e));
     assert(r.second);
     return e;

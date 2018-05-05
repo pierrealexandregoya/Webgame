@@ -147,9 +147,9 @@ void WsConn::on_read(const boost::system::error_code& ec, size_t bytes_transferr
             std::string suborder = ptree.get<std::string>("suborder");
             if (suborder == "player")
             {
-                playerEntity_->setVel(Array2({ ptree.get<float>("vel.x"), ptree.get<float>("vel.y") }));
-                if (fabsf(boost::numeric::ublas::norm_2(playerEntity_->vel())) > std::numeric_limits<float>::epsilon())
-                    playerEntity_->setVel(VecType(playerEntity_->vel() / boost::numeric::ublas::norm_2(playerEntity_->vel())));
+                playerEntity_->setDir({ ptree.get<float>("vel.x"), ptree.get<float>("vel.y") });
+                if (fabsf(boost::numeric::ublas::norm_2(playerEntity_->dir())) > std::numeric_limits<float>::epsilon())
+                    playerEntity_->setDir(playerEntity_->dir() / boost::numeric::ublas::norm_2(playerEntity_->dir()));
             }
         }
     }

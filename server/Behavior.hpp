@@ -2,28 +2,18 @@
 
 #include <map>
 
-#include "Env.hpp"
 #include "types.hpp"
 
 class Entity;
 
 class Behavior
 {
-private:
-    //static 
 protected:
     Entity  *self_;
     bool    resolved_;
 
     NON_MOVABLE_OR_COPYABLE(Behavior);
 
-//public:
-//    template<class T>
-//    static P<Behavior> create()
-//    {
-//        return MP<
-//    }
-//
 protected:
     Behavior();
 
