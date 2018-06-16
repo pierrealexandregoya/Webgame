@@ -1,5 +1,5 @@
 class Entity {
-    constructor(pos, texUrl) {
+    constructor(pos, texUrl, type) {
         this.pos = pos;
         this.targetPos = pos;
         this.texUrl = texUrl;
@@ -9,6 +9,11 @@ class Entity {
         this.scale = [1, 1];
         this.texGl = loadTexture(gl, this.texUrl);
         this.buffers = initBuffers(gl);
+        if (typeof type === 'undefined') {
+            this.type = "";
+        }
+        else
+            this.type = type;
     }
 
     update(d) {

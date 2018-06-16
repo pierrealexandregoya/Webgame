@@ -9,6 +9,9 @@ let camera;
 
 window.addEventListener("load", init, false);
 
+if (typeof (debug) === 'undefined')
+    debug = false;
+
 function init() {
     glCanvas = document.getElementById("glcanvas");
     glCanvas.width = document.body.clientWidth;
@@ -32,7 +35,7 @@ function init() {
 function loop(currentT) {
     let d = ((currentT - previousTime) / 1000.0)
     previousTime = currentT;
-    sync();
+    sync(d);
     update(d);
     draw();
     window.requestAnimationFrame(function (currentTime) {
@@ -52,8 +55,14 @@ function draw() {
     gl.useProgram(programInfo.program);
     gl.uniform2fv(programInfo.uniformLocations.camVector, camera.pos);
 
-    for (e in entities)
-        entities[e].draw();
+    for (i in entities) {
+        if (entities[i].type.search("object") !== -1)
+            entities[i].draw();
+    }
+    for (i in entities) {
+        if (entities[i].type.search("object") === -1)
+            entities[i].draw();
+    }
 }
 
 function initGL() {

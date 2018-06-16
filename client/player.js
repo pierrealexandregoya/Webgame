@@ -1,6 +1,6 @@
 class Player extends Entity {
     constructor(pos) {
-        super(pos, "knight256.png");
+        super(pos, "knight.png");
         this.move = false;
         this.nbMove = 0;
     }
@@ -11,14 +11,15 @@ class Player extends Entity {
         //console.log("stop");
         this.vel = [0, 0]
         this.move = false;
+        this.targetPos = undefined;
         syncNeeded = true;
     }
 
     update(d) {
         if (mouseDown) {
             let cursorInWorld = screenToWorld(mousePos);
-            // If new target if far enough from old one AND if new target if far enough from player
-            if (getNorm([this.targetPos[0] - cursorInWorld[0], this.targetPos[1] - cursorInWorld[1]]) > 0.1
+            // If new target if far enough from old one (if it exists) AND if new target if far enough from player
+            if ((this.targetPos === undefined || getNorm([this.targetPos[0] - cursorInWorld[0], this.targetPos[1] - cursorInWorld[1]]) > 0.1)
                 && getNorm([cursorInWorld[0] - this.pos[0], cursorInWorld[1] - this.pos[1]]) > 0.01) {
                 this.targetPos = [cursorInWorld[0], cursorInWorld[1]];
                 this.vel = normalize([this.targetPos[0] - this.pos[0], this.targetPos[1] - this.pos[1]]);

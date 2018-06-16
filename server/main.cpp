@@ -1,22 +1,29 @@
-#include "Server.hpp"
+#include "misc/log.hpp"
+#include "server.hpp"
 
 int main(int ac, char **av)
 {
+    std::cout << std::boolalpha;
+
+    unsigned short  port = 2000;
+    unsigned int    threads = std::thread::hardware_concurrency();
+
     try {
-        unsigned short port = 2000;
         if (ac >= 2)
-            port = std::atoi(av[1]);
-        Server server(port);
-        server.run();
+            port = std::stoi(av[1]);
+        if (ac >= 3)
+            threads = std::stoi(av[2]);
+
+        std::make_shared<server>(port, threads)->run();
     }
     catch (std::exception const& e) {
-        std::cout << "Std exception: " << e.what() << std::endl;
+        _MY_LOG("Std exception: " << e.what());
     }
     catch (boost::exception const&) {
-        std::cout << "Boost exception" << std::endl;
+        _MY_LOG("Boost exception");
     }
     catch (...) {
-        std::cout << "Other exception" << std::endl;
+        _MY_LOG("Other exception");
     }
 #ifdef _WIN32
     system("PAUSE");
