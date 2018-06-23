@@ -1,5 +1,6 @@
 #pragma once
 
+#include <future>
 #include <mutex>
 
 #include <boost/asio/io_context.hpp>
@@ -31,6 +32,8 @@ private:
     steady_clock::time_point                wake_time_;
     std::recursive_mutex                    conns_mutex_;
     std::shared_ptr<bool>                   stop_;
+    std::vector<std::thread>                network_threads_;
+    std::future<void>                       game_loop_status_;
 
     NON_MOVABLE_OR_COPYABLE(server);
 
@@ -38,12 +41,18 @@ public:
     server(unsigned int port, unsigned int threads = 1);
 
     void    run();
-    void    loop(unsigned int nb_ticks);
+    void    shutdown();
 
 private:
-    void                    on_accept(const boost::system::error_code& error) noexcept;
+    void    run_game();
+    void    run_network();
+    void    run_input_read();
 
-    void                    do_accept();
+    void    game_loop();
+    void    game_cycle(unsigned int nb_ticks);
+
+    void    on_accept(const boost::system::error_code& error) noexcept;
+    void    do_accept();
 
     std::shared_ptr<entity> add_entity(vector const& pos, vector const& dir, real speed, real max_speed, std::string const& type, behaviors && behaviors = behaviors());
 };

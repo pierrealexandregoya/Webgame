@@ -47,7 +47,7 @@ void ws_conn::start()
     std::lock_guard<decltype(handlers_mutex_)> l(handlers_mutex_);
 
     CONN_LOG("HANDSHAKING");
-    assert(socket_.get_executor().running_in_this_thread());
+
     socket_.async_accept(asio::bind_executor(strand_, std::bind(&ws_conn::on_accept, shared_from_this(), std::placeholders::_1)));
     state_ = handshaking;
 }
@@ -55,8 +55,6 @@ void ws_conn::start()
 void ws_conn::write(std::shared_ptr<std::string const> msg)
 {
     std::lock_guard<decltype(handlers_mutex_)> l(handlers_mutex_);
-
-    //CONN_LOG("PUSHING MESSAGE OF SIZE " << msg->size());
 
     to_write_.emplace_back(msg);
 
@@ -106,11 +104,6 @@ void ws_conn::write_next()
 
     if (state_ != reading || to_write_.empty())
         return;
-
-    /*if (io_log_ && data_log_)
-        CONN_LOG("WRITING " << to_write_.back()->size() << " BYTES: " << std::endl << *to_write_.back());
-    else if (io_log_)
-        CONN_LOG("WRITING " << to_write_.back()->size() << " BYTES");*/
 
     socket_.async_write(asio::buffer(*to_write_.back()), asio::bind_executor(strand_, std::bind(&ws_conn::on_write, shared_from_this(), std::placeholders::_1, std::placeholders::_2)));
     state_ = writing;
@@ -222,7 +215,7 @@ void ws_conn::on_write(beast::error_code const& ec, std::size_t const& bytes_tra
     to_write_.pop_back();
 
     if (!ec && bytes_transferred != msg->size())
-        CONN_LOG("ON WRITE: WTF ?! no error, but bytes_transferred != expected: " << bytes_transferred << " != " << msg->size());
+        CONN_LOG("ON WRITE: >>> no error, but bytes_transferred != expected: " << bytes_transferred << " != " << msg->size());
 
     if (state_ == to_be_closed)
     {
@@ -260,10 +253,6 @@ void ws_conn::on_close() noexcept
 
 void ws_conn::do_read()
 {
-    //CONN_LOG("READING");
-
-    assert(socket_.get_executor().running_in_this_thread());
-
     socket_.async_read(read_buffer_, asio::bind_executor(strand_, std::bind(&ws_conn::on_read, shared_from_this(), std::placeholders::_1, std::placeholders::_2)));
 }
 

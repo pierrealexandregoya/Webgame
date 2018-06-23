@@ -49,6 +49,68 @@ server::server(unsigned int port, unsigned int threads)
             add_entity({ i - s / 2.f , j - s / 2.f }, { 0.f, 0.f }, 0.f, 0.f, "object1");
 }
 
+void server::run()
+{
+    run_game();
+
+    run_network();
+
+    run_input_read();
+
+    shutdown();
+}
+
+void server::shutdown()
+{
+    *stop_ = true;
+    LOG("SHUTDOWN", "Stopping game loop thread");
+    game_loop_status_.wait();
+
+    LOG("SHUTDOWN", "Cancelling server accept");
+    acceptor_.cancel();
+    for (auto conn : conns_)
+    {
+        LOG("SHUTDOWN", "Closing connection " << conn.second->addr_str);
+        conn.second->close();
+    }
+
+    LOG("SHUTDOWN", "Closing server socket");
+    acceptor_.close();
+
+    for (auto & t : network_threads_)
+    {
+        LOG("SHUTDOWN", "Joining network thread " << t.get_id());
+        t.join();
+    }
+}
+
+void server::run_game()
+{
+    wake_time_ = std::chrono::ceil<std::chrono::seconds>(steady_clock::now());
+    assert(std::chrono::duration_cast<std::chrono::nanoseconds>(wake_time_.time_since_epoch()).count() % 1000000000 == 0);
+
+    game_loop_status_ = std::async(std::launch::async, std::bind(&server::game_loop, this));
+}
+
+void server::run_network()
+{
+    asio::post(acceptor_.get_executor(), std::bind(&server::do_accept, shared_from_this()));
+
+    network_threads_.reserve(threads_);
+    for (auto i = 0; i < threads_; ++i)
+        network_threads_.emplace_back([this, i] {
+        LOG("NETWORK", "THREAD #" << i + 1 << " STARTED");
+        try {
+            io_context_.run();
+        }
+        catch (...) {
+            assert(false);
+        }
+        assert(*stop_);
+        LOG("NETWORK", "THREAD #" << i + 1 << " STOPPED");
+    });
+}
+
 void show_help()
 {
     _MY_LOG("commands:" << std::endl
@@ -60,66 +122,19 @@ void show_help()
     );
 }
 
-void server::run()
+void server::run_input_read()
 {
-    wake_time_ = std::chrono::ceil<std::chrono::seconds>(steady_clock::now());
-    assert(std::chrono::duration_cast<std::chrono::nanoseconds>(wake_time_.time_since_epoch()).count() % 1000000000 == 0);
-
-    // Run game loop
-    auto loop_status = std::async(std::launch::async, [&] {
-
-        std::this_thread::sleep_until(wake_time_);
-
-        LOG("INFO", "GAME LOOP THREAD STARTED");
-
-        while (!*stop_)
-        {
-            auto nb_ticks = 0;
-            while (wake_time_ < steady_clock::now())
-            {
-                wake_time_ += tick_duration_;
-                ++nb_ticks;
-            }
-            assert(nb_ticks >= 1);
-
-            if (nb_ticks > 1)
-                LOG("LOOP THREAD", "RETARD OF " << nb_ticks - 1 << " TICK" << (nb_ticks - 1 > 1 ? "S" : ""));
-            std::this_thread::sleep_until(wake_time_);
-
-            loop(nb_ticks);
-        }
-
-        LOG("INFO", "GAME LOOP THREAD STOPPED");
-    });
-
-    // Run network
-    asio::post(acceptor_.get_executor(), std::bind(&server::do_accept, shared_from_this()));
-
-    std::vector<std::thread> v;
-    v.reserve(threads_);
-    for (auto i = 0; i < threads_; ++i)
-        v.emplace_back([&] {
-        LOG("INFO", "NETWORK ASIO THREAD STARTED");
-        try {
-            io_context_.run();
-        }
-        catch (...) {
-            assert(false);
-        }
-        assert(*stop_);
-        LOG("INFO", "NETWORK ASIO THREAD STOPPED");
-    });
-
-    // Read user input
     std::string input;
-    while (input != "exit")
+    for (;;)
     {
         std::cin >> input;
         if (input == "info")
         {
+            std::lock_guard<decltype(log_mutex)> lock(log_mutex);
             LOG("INFO", "Connections: " << conns_.size());
             LOG("INFO", "Entities: " << entities_.size());
-            LOG("INFO", "Threads: " << v.size() << " asio thread" << (v.size() > 1 ? "s" : "") << " + user input thread + game loop thread");
+            LOG("INFO", "Threads: " << network_threads_.size() << " asio thread"
+                << (network_threads_.size() > 1 ? "s" : "") << " + user input thread + game loop thread");
         }
         else if (input == "help")
             show_help();
@@ -127,6 +142,8 @@ void server::run()
             data_log = !data_log;
         else if (input == "io")
             io_log = !io_log;
+        else if (input == "exit")
+            break;
         else
         {
             std::lock_guard<decltype(log_mutex)> lock(log_mutex);
@@ -134,32 +151,35 @@ void server::run()
             show_help();
         }
     }
-
-    // Server shutdown
-    *stop_ = true;
-
-    LOG("SERVER SHUTDOWN", "Stopping game loop thread");
-    loop_status.wait();
-
-    LOG("SERVER SHUTDOWN", "Cancelling server accept");
-    acceptor_.cancel();
-    for (auto conn : conns_)
-    {
-        LOG("SERVER SHUTDOWN", "Closing connection " << conn.second->addr_str);
-        conn.second->close();
-    }
-
-    LOG("SERVER SHUTDOWN", "Closing server socket");
-    acceptor_.close();
-
-    for (auto & t : v)
-    {
-        LOG("SERVER SHUTDOWN", "Joining network thread " << t.get_id());
-        t.join();
-    }
 }
 
-void server::loop(unsigned int nb_ticks)
+void server::game_loop()
+{
+    std::this_thread::sleep_until(wake_time_);
+
+    LOG("GAME LOOP", "STARTED");
+
+    while (!*stop_)
+    {
+        auto nb_ticks = 0;
+        while (wake_time_ < steady_clock::now())
+        {
+            wake_time_ += tick_duration_;
+            ++nb_ticks;
+        }
+        assert(nb_ticks >= 1);
+
+        if (nb_ticks > 1)
+            LOG("GAME LOOP", "RETARD OF " << nb_ticks - 1 << " TICK" << (nb_ticks - 1 > 1 ? "S" : ""));
+        std::this_thread::sleep_until(wake_time_);
+
+        game_cycle(nb_ticks);
+    }
+
+    LOG("GAME LOOP", "STOPPED");
+}
+
+void server::game_cycle(unsigned int nb_ticks)
 {
     std::lock_guard<decltype(conns_mutex_)> l(conns_mutex_);
 
@@ -174,12 +194,12 @@ void server::loop(unsigned int nb_ticks)
     for (auto id : ids_to_remove)
     {
         assert(entities_.at(id)->type() == "player");
-        LOG("SERVER LOOP", "Removing id " << id << " from connections and entities");
+        LOG("GAME LOOP", "Removing id " << id << " from connections and entities");
 
         if (conns_.erase(id) == 0)
-            LOG("SERVER LOOP", "ERROR: No id in connections");
+            LOG("GAME LOOP", "ERROR: No id in connections");
         if (entities_.erase(id) == 0)
-            LOG("SERVER LOOP", "ERROR: No id in entities");
+            LOG("GAME LOOP", "ERROR: No id in entities");
     }
 
     // Check network state
@@ -224,10 +244,10 @@ void server::loop(unsigned int nb_ticks)
                 else if (p.what == "targetPos")
                     entities_[id]->set_dir(any_cast<vector>(p.value) - entities_[id]->pos());
                 else
-                    LOG("SERVER LOOP", "ERROR during patches application: unknown value: " << p.what);
+                    LOG("GAME LOOP", "ERROR during patches application: unknown value: " << p.what);
             }
             catch (const bad_any_cast& e) {
-                LOG("SERVER LOOP", "ERROR during patches application: " << e.what() << ". Conn: " << c.second->addr_str << ", entity: " << id << ", value name: " << p.what);
+                LOG("GAME LOOP", "ERROR during patches application: " << e.what() << ". Conn: " << c.second->addr_str << ", entity: " << id << ", value name: " << p.what);
             }
         }
     }
@@ -291,7 +311,7 @@ void server::on_accept(const boost::system::error_code& ec) noexcept
         LOG("SERVER ACCEPT", "New connection from: " << new_connection->addr_str);
     }
     catch (...) {
-        LOG("SERVER LOOP", "ERROR while creating new player entity, new connection or while starting it");
+        LOG("SERVER ACCEPT", "ERROR while creating new player entity, new connection or while starting it");
 
         if (e)
             conns_.erase(e->id());
