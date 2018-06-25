@@ -22,6 +22,9 @@ public:
         : vec_impl(ve)
     {}
 
+    bool operator==(vector const& other);
+    bool operator!=(vector const& other);
+
     real const& x() const;
     real const& y() const;
 };

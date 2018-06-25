@@ -26,7 +26,7 @@ private:
 public:
     entity(vector const& pos, vector const& dir, real speed, real max_speed, std::string const& type, behaviors && behaviors = behaviors());
 
-    void                update(real d, env & env);
+    bool                update(real d, env & env);
     void                treatbehaviors(real d, env & env);
     void                set_dir(vector const& vec);
     void                set_speed(real speed);

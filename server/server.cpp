@@ -181,7 +181,7 @@ void server::game_loop()
 
 void server::game_cycle(unsigned int nb_ticks)
 {
-    std::lock_guard<decltype(conns_mutex_)> l(conns_mutex_);
+    std::lock_guard<decltype(server_mutex_)> l(server_mutex_);
 
     duration delta = (std::chrono::duration_cast<delta_duration>(tick_duration_) * nb_ticks).count();
 
@@ -253,6 +253,7 @@ void server::game_cycle(unsigned int nb_ticks)
     }
 
     // Update all entities with delta
+    entities changed_entities;
     for (auto &p : entities_)
     {
         env env(entities_);
@@ -260,30 +261,39 @@ void server::game_cycle(unsigned int nb_ticks)
         assert(env.others().count(p.second->id()) == 1);
         assert(env.others().at(p.second->id()).use_count() > 1);
         env.others().erase(p.second->id());
-        p.second->update(delta, env);
+        if (p.second->update(delta, env))
+            changed_entities.insert(p);
     }
 
-    // Serialize all entities
-    std::shared_ptr<std::string const> jsonentities = std::make_shared<std::string const>(std::move(entities_to_json(entities_)));
+    // Serialize all entities with changes
+    std::shared_ptr<std::string const> jsonentities;
+    if (!changed_entities.empty())
+        jsonentities = std::make_shared<std::string const>(std::move(entities_to_json(changed_entities)));
 
     // We broadcast all changes to all players
-    for (auto &c : server::conns_)
-    {
-        if (c.second->current_state() != ws_conn::reading
-            && c.second->current_state() != ws_conn::writing)
-            continue;
+    if (remove_msg)
+        for (auto &c : server::conns_)
+        {
+            if (c.second->current_state() != ws_conn::reading
+                && c.second->current_state() != ws_conn::writing)
+                continue;
 
-        if (remove_msg)
             c.second->write(remove_msg);
+        }
 
-        c.second->write(jsonentities);
-    }
+    if (jsonentities)
+        for (auto &c : server::conns_)
+        {
+            if (c.second->current_state() != ws_conn::reading
+                && c.second->current_state() != ws_conn::writing)
+                continue;
+
+            c.second->write(jsonentities);
+        }
 }
 
 void server::on_accept(const boost::system::error_code& ec) noexcept
 {
-    std::lock_guard<decltype(conns_mutex_)> l(conns_mutex_);
-
     if (ec)
     {
         if (ec.value() == 995)
@@ -296,28 +306,54 @@ void server::on_accept(const boost::system::error_code& ec) noexcept
         return;
     }
 
-    std::shared_ptr<entity> e;
-    std::shared_ptr<ws_conn> new_connection;
+    // MESSY
+    std::shared_ptr<entity> new_ent;
+    std::shared_ptr<ws_conn> new_conn;
+    connections conns_copy;
+    std::string json_entities;
+    {
+        std::lock_guard<decltype(server_mutex_)> l(server_mutex_);
 
-    try {
-        e = add_entity({ 0.f, 0.f }, { 0.f, 0.f }, 1.f, 1.f, "player");
+        try {
+            LOG("SERVER ACCEPT", "New connection from: " << new_client_socket_.remote_endpoint().address().to_string() + ":" + std::to_string(new_client_socket_.remote_endpoint().port()));
 
-        new_connection = std::make_shared<ws_conn>(std::ref(new_client_socket_), e);
+            new_ent = add_entity({ 0.f, 0.f }, { 0.f, 0.f }, 1.f, 1.f, "player");
 
-        assert(conns_.insert({ e->id(), new_connection }).second);
+            new_conn = std::make_shared<ws_conn>(std::ref(new_client_socket_), new_ent);
 
-        new_connection->start();
+            assert(conns_.insert({ new_ent->id(), new_conn }).second);
 
-        LOG("SERVER ACCEPT", "New connection from: " << new_connection->addr_str);
+            new_conn->start();
+
+            conns_copy = conns_;
+            json_entities = std::move(entities_to_json(entities_));
+        }
+        catch (...) {
+            LOG("SERVER ACCEPT", "ERROR while creating new player entity, new connection or while starting it");
+
+            if (new_ent)
+            {
+                if (new_conn)
+                {
+                    conns_.erase(new_ent->id());
+                    new_conn.reset();
+                }
+                entities_.erase(new_ent->id());
+                new_ent.reset();
+            }
+
+        }
     }
-    catch (...) {
-        LOG("SERVER ACCEPT", "ERROR while creating new player entity, new connection or while starting it");
 
-        if (e)
-            conns_.erase(e->id());
-        if (new_connection)
-            conns_.erase(e->id());
+    if (new_ent && new_conn)
+    {
+        new_conn->write(std::make_shared<std::string const>(std::move(json_entities)));
+        entities tmp = { {new_ent->id(), new_ent} };
+        auto new_entity_json = std::make_shared<std::string const>(std::move(entities_to_json(tmp)));
+        for (auto &c : conns_copy)
+            c.second->write(new_entity_json);
     }
+
     do_accept();
 }
 

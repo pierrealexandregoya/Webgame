@@ -58,6 +58,7 @@ private:
     std::recursive_mutex                                handlers_mutex_;
     std::queue<patch>                                   patches_;
     std::recursive_mutex                                patches_mutex_;
+    beast::websocket::close_code                        close_code_;
 
 private:
     NON_MOVABLE_OR_COPYABLE(ws_conn);

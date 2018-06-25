@@ -9,6 +9,16 @@ vector::vector(std::initializer_list<value_type> const& l)
     (*this)[1] = *it;
 }
 
+bool vector::operator==(vector const& other)
+{
+    return (*this)[0] == other[0] && (*this)[1] == other[1];
+}
+
+bool vector::operator!=(vector const& other)
+{
+    return !(*this == other);
+}
+
 real const& vector::x() const
 {
     return (*this)[0];

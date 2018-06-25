@@ -30,7 +30,7 @@ private:
     asio::ip::tcp::socket                   new_client_socket_;
     steady_clock::duration                  const tick_duration_;
     steady_clock::time_point                wake_time_;
-    std::recursive_mutex                    conns_mutex_;
+    std::recursive_mutex                    server_mutex_;
     std::shared_ptr<bool>                   stop_;
     std::vector<std::thread>                network_threads_;
     std::future<void>                       game_loop_status_;

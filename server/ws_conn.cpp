@@ -31,13 +31,13 @@ ws_conn::ws_conn(asio::ip::tcp::socket &socket, std::shared_ptr<entity const> en
     , strand_(socket_.get_executor())
     , state_(none)
     , player_entity_(entity)
+    , close_code_(beast::websocket::close_code::none)
 {
     state_ = ready;
     socket_.auto_fragment(true);
 
-    socket_.control_callback([&](beast::websocket::frame_type f, beast::string_view s) {
-        CONN_LOG("CONTROL FRAME: " << s.to_string());
-    });
+    /*socket_.control_callback([&](beast::websocket::frame_type f, beast::string_view s) {
+    });*/
 
     CONN_LOG("CONNECTED");
 }
@@ -45,8 +45,6 @@ ws_conn::ws_conn(asio::ip::tcp::socket &socket, std::shared_ptr<entity const> en
 void ws_conn::start()
 {
     std::lock_guard<decltype(handlers_mutex_)> l(handlers_mutex_);
-
-    CONN_LOG("HANDSHAKING");
 
     socket_.async_accept(asio::bind_executor(strand_, std::bind(&ws_conn::on_accept, shared_from_this(), std::placeholders::_1)));
     state_ = handshaking;
@@ -64,7 +62,10 @@ void ws_conn::write(std::shared_ptr<std::string const> msg)
 
 void ws_conn::close()
 {
-    do_close(beast::websocket::close_code::normal);
+    if (socket_.get_executor().running_in_this_thread())
+        do_close(beast::websocket::close_code::normal);
+    else
+        asio::post(socket_.get_executor(), asio::bind_executor(strand_, std::bind(&ws_conn::do_close, shared_from_this(), beast::websocket::close_code::normal)));
 }
 
 bool ws_conn::pop_patch(patch &out)
@@ -115,13 +116,13 @@ void ws_conn::on_accept(boost::system::error_code const& ec) noexcept
 
     if (ec)
     {
-        CONN_LOG("HANDSHAKING ERROR" << ": " << ec.message());
+        CONN_LOG("HANDSHAKE ERROR" << ": " << ec.message());
         do_close(beast::websocket::close_code::abnormal);
         do_read();
         return;
     }
 
-    CONN_LOG("HANDSHAKING DONE");
+    CONN_LOG("HANDSHAKED");
 
     do_read();
     state_ = reading;
@@ -147,12 +148,12 @@ void ws_conn::on_read(boost::system::error_code const& ec, std::size_t const& by
         if (socket_.is_open())
         {
             CONN_LOG("READ ERROR: " << ec.message() << ", code: " << ec.value());
-            do_close(beast::websocket::close_code::normal);
+            do_close(beast::websocket::close_code::abnormal);
             do_read();
         }
         else
         {
-            CONN_LOG("READ: SESSION CLOSED");
+            CONN_LOG("SESSION CLOSED");
             state_ = closed;
         }
 
@@ -214,8 +215,13 @@ void ws_conn::on_write(beast::error_code const& ec, std::size_t const& bytes_tra
     auto msg = to_write_.back();
     to_write_.pop_back();
 
-    if (!ec && bytes_transferred != msg->size())
-        CONN_LOG("ON WRITE: >>> no error, but bytes_transferred != expected: " << bytes_transferred << " != " << msg->size());
+    if (ec)
+    {
+        if (ec.value() == 995)
+            CONN_LOG("WRITE ERROR: operation aborted");
+        else
+            CONN_LOG("WRITE ERROR: " << ec.message());
+    }
 
     if (state_ == to_be_closed)
     {
@@ -231,12 +237,10 @@ void ws_conn::on_write(beast::error_code const& ec, std::size_t const& bytes_tra
 
     if (ec)
     {
-        if (ec.value() == 995)
-            CONN_LOG("WRITE INFO: operation aborted");
-        else
-            CONN_LOG("WRITE ERROR: " << ec.message());
+        do_close(close_code_);
         return;
     }
+
 
     if (io_log && data_log)
         CONN_LOG("ON WRITE: " << bytes_transferred << " WRITTEN: " << std::endl << *msg);
@@ -247,9 +251,7 @@ void ws_conn::on_write(beast::error_code const& ec, std::size_t const& bytes_tra
 }
 
 void ws_conn::on_close() noexcept
-{
-    CONN_LOG("ON CLOSE: Reading until error");
-}
+{}
 
 void ws_conn::do_read()
 {
@@ -264,20 +266,15 @@ void ws_conn::do_close(beast::websocket::close_code const& code)
 
     if (state_ == writing)
     {
-        CONN_LOG("FORCED CLOSE: Cannot close socket yet, there is a pending write");
+        CONN_LOG("CLOSE: Cannot close socket yet, there is a pending write");
         state_ = to_be_closed;
+        close_code_ = code;
         return;
     }
 
     CONN_LOG("CLOSING");
 
-    if (!socket_.is_open())
-        CONN_LOG("ERROR: socket_.is_open() -> " << socket_.is_open());
-
-    if (socket_.get_executor().running_in_this_thread())
-        socket_.async_close(code, asio::bind_executor(strand_, std::bind(&ws_conn::on_close, shared_from_this())));
-    else
-        asio::post(socket_.get_executor(), asio::bind_executor(strand_, std::bind(&ws_conn::do_close, shared_from_this(), code)));
+    socket_.async_close(code, asio::bind_executor(strand_, std::bind(&ws_conn::on_close, shared_from_this())));
     state_ = closing;
 }
 

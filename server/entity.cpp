@@ -21,8 +21,10 @@ entity::entity(vector const& pos, vector const& dir, real speed, real max_speed,
         p.second->set_self(this);
 }
 
-void entity::update(real d, env & env)
+bool entity::update(real d, env & env)
 {
+    vector prev_pos = pos_;
+    vector prev_dir = dir_;
     treatbehaviors(d, env);
 
     auto norm = ublas::norm_2(dir_);
@@ -37,6 +39,7 @@ void entity::update(real d, env & env)
         assert(!std::isnan(pos_[1]));
         assert(!std::isnan(speed_));
     }
+    return prev_pos != pos_ || prev_dir != dir_;
 }
 
 void entity::treatbehaviors(real d, env & env)
@@ -46,11 +49,11 @@ void entity::treatbehaviors(real d, env & env)
 
     bool r = true;
 
-    real k = 0;
+    float k = 0;
     // testme
     for (auto const& p : behaviors_)
     {
-        if (p.first - k > std::numeric_limits<real>::epsilon() && !r)
+        if (p.first - k > std::numeric_limits<float>::epsilon() && !r)
             break;
         p.second->update(d, env);
         if (!p.second->resolved())
