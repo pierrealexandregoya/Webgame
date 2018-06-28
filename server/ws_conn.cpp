@@ -127,12 +127,7 @@ void ws_conn::on_accept(boost::system::error_code const& ec) noexcept
     do_read();
     state_ = reading;
 
-    boost::property_tree::ptree root = entity_to_ptree(player_entity_);
-    root.put("order", "state");
-    root.put("suborder", "player");
-    std::stringstream ss;
-    boost::property_tree::write_json(ss, root, false);
-    write(std::make_shared<std::string const>(std::move(ss.str())));
+    write(std::make_shared<std::string const>(json_state_player(player_entity_)));
 }
 
 void ws_conn::on_read(boost::system::error_code const& ec, std::size_t const& bytes_transferred) noexcept

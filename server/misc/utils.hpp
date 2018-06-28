@@ -60,7 +60,7 @@ to_time;\
 #else
 # define TIME_SCOPE 
 //# define TIME_SCOPE do {} while (0)
-# #define TIME_THIS(to_time) to_time
+# define TIME_THIS(to_time) to_time
 #endif /* !NDEBUG */
 
 extern std::string get_readable(boost::beast::multi_buffer::const_buffers_type const& bufs);

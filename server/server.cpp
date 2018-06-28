@@ -258,8 +258,6 @@ void server::game_cycle(unsigned int nb_ticks)
     {
         env env(entities_);
         // Remove the entity from its own env so it doesn't see itself
-        assert(env.others().count(p.second->id()) == 1);
-        assert(env.others().at(p.second->id()).use_count() > 1);
         env.others().erase(p.second->id());
         if (p.second->update(delta, env))
             changed_entities.insert(p);
@@ -268,7 +266,7 @@ void server::game_cycle(unsigned int nb_ticks)
     // Serialize all entities with changes
     std::shared_ptr<std::string const> jsonentities;
     if (!changed_entities.empty())
-        jsonentities = std::make_shared<std::string const>(std::move(entities_to_json(changed_entities)));
+        jsonentities = std::make_shared<std::string const>(json_state_entities(changed_entities));
 
     // We broadcast all changes to all players
     if (remove_msg)
@@ -326,7 +324,7 @@ void server::on_accept(const boost::system::error_code& ec) noexcept
             new_conn->start();
 
             conns_copy = conns_;
-            json_entities = std::move(entities_to_json(entities_));
+            json_entities = json_state_entities(entities_);
         }
         catch (...) {
             LOG("SERVER ACCEPT", "ERROR while creating new player entity, new connection or while starting it");
@@ -349,7 +347,7 @@ void server::on_accept(const boost::system::error_code& ec) noexcept
     {
         new_conn->write(std::make_shared<std::string const>(std::move(json_entities)));
         entities tmp = { {new_ent->id(), new_ent} };
-        auto new_entity_json = std::make_shared<std::string const>(std::move(entities_to_json(tmp)));
+        auto new_entity_json = std::make_shared<std::string const>(json_state_entities(tmp));
         for (auto &c : conns_copy)
             c.second->write(new_entity_json);
     }
