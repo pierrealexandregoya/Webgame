@@ -1,5 +1,16 @@
-#include "misc/log.hpp"
+
+
+
+
+#include "log.hpp"
+
 #include "server.hpp"
+
+#include "behavior.hpp"
+
+
+
+
 
 int main(int ac, char **av)
 {

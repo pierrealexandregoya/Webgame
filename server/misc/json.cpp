@@ -3,7 +3,9 @@
 #include <boost/property_tree/json_parser.hpp>
 
 #include "common.hpp"
-#include "../entity.hpp"
+#include "behavior.hpp"
+#include "entities.hpp"
+#include "entity.hpp"
 
 boost::property_tree::ptree get_ptree(vector const& v)
 {

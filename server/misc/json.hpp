@@ -4,8 +4,8 @@
 
 #include "containers.hpp"
 
+class entities;
 class entity;
-class vector;
 
 // Protocole helpers
 extern std::string json_state_entities(entities const& entities);

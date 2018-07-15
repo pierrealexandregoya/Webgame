@@ -1,9 +1,44 @@
 #include "entity.hpp"
 
 #include "behavior.hpp"
-#include "misc/random.hpp"
+#include "random.hpp"
 
-entity::entity(vector const& pos, vector const& dir, real speed, real max_speed, std::string const& type, behaviors && behaviors)
+#ifndef NDEBUG
+bool entity::operator==(entity const& other)
+{
+    if (id_ != other.id_
+        || pos_ != other.pos_
+        || dir_ != other.dir_
+        || type_ != other.type_
+        || speed_ != other.speed_
+        || max_speed_ != other.max_speed_)
+        return false;
+
+    if (behaviors_.size() != other.behaviors_.size())
+        return false;
+
+    auto it1 = behaviors_.cbegin();
+    auto it2 = other.behaviors_.cbegin();
+
+    while (it1 != behaviors_.cend())
+    {
+        if (it1->first != it2->first
+            || *it1->second != *it2->second)
+            return false;
+        ++it1;
+        ++it2;
+    }
+
+    return true;
+}
+
+bool entity::operator!=(entity const& other)
+{
+    return !(*this == other);
+}
+#endif /* !NDEBUG */
+
+entity::entity(vector const& pos, vector const& dir, real speed, real max_speed, std::string const& type, behaviors_t && behaviors)
     : id_(id_rand(gen))
     , pos_()
     , dir_()
@@ -12,11 +47,30 @@ entity::entity(vector const& pos, vector const& dir, real speed, real max_speed,
     , speed_(std::min(speed, max_speed))
     , max_speed_(max_speed)
 {
+    // vec_ = vec should suffise
     for (int i = 0; i < 2; ++i)
     {
         pos_[i] = pos[i];
         dir_[i] = dir[i];
     }
+
+    init_behaviors();
+}
+
+entity::entity(entity && other)
+    : id_(std::move(other.id_))
+    , pos_(std::move(other.pos_))
+    , dir_(std::move(other.dir_))
+    , type_(std::move(other.type_))
+    , behaviors_(std::move(other.behaviors_))
+    , speed_(std::move(other.speed_))
+    , max_speed_(std::move(other.max_speed_))
+{
+    init_behaviors();
+}
+
+void entity::init_behaviors()
+{
     for (auto p : behaviors_)
         p.second->set_self(this);
 }
@@ -47,17 +101,17 @@ void entity::treatbehaviors(real d, env & env)
     if (behaviors_.empty())
         return;
 
-    bool r = true;
+    bool resolved = true;
 
-    float k = 0;
-    // testme
+    int priority = behaviors_.begin()->first;
+
     for (auto const& p : behaviors_)
     {
-        if (p.first - k > std::numeric_limits<float>::epsilon() && !r)
+        if (p.first > priority && !resolved)
             break;
+        priority = p.first;
         p.second->update(d, env);
-        if (!p.second->resolved())
-            r = false;
+        resolved = p.second->resolved();
     }
 }
 
@@ -68,9 +122,7 @@ void entity::set_dir(vector const& dir)
 
 void entity::set_speed(real speed)
 {
-    speed_ = speed;
-    if (speed_ > max_speed_)
-        speed_ = max_speed_;
+    speed_ = std::min(speed, max_speed_);
 }
 
 id_t const& entity::id() const

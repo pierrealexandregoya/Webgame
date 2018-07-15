@@ -1,13 +1,25 @@
 #include "behavior.hpp"
 
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 
 #include "entity.hpp"
 #include "env.hpp"
-#include "misc/log.hpp"
-#include "misc/random.hpp"
-#include "misc/vector.hpp"
+#include "log.hpp"
+#include "random.hpp"
+#include "vector.hpp"
+
+#ifndef NDEBUG
+bool behavior::operator==(behavior const& other)
+{
+    return resolved_ == other.resolved_;
+}
+
+bool behavior::operator!=(behavior const& other)
+{
+    return !(*this == other);
+}
+#endif /* !NDEBUG */
 
 behavior::behavior()
     : resolved_(false)
@@ -22,12 +34,26 @@ void behavior::set_self(entity * self)
     self_ = self;
 }
 
-bool behavior::resolved() const
+bool const& behavior::resolved() const
 {
     return resolved_;
 }
 
 // WALK AROUND
+#ifndef NDEBUG
+bool walkaround::operator==(behavior const& o)
+{
+    walkaround const& other = dynamic_cast<decltype(other)>(o);
+    return behavior::operator==(other)
+        && t_ == other.t_;
+}
+
+bool walkaround::operator!=(behavior const& other)
+{
+    return !(*this == other);
+}
+#endif /* !NDEBUG */
+
 walkaround::walkaround()
     : behavior()
     , t_(0)
@@ -63,6 +89,21 @@ void walkaround::update(duration delta, env &env)
 }
 
 // AREA LIMIT
+#ifndef NDEBUG
+bool arealimit::operator==(behavior const& o)
+{
+    arealimit const& other = dynamic_cast<decltype(other)>(o);
+    return behavior::operator==(other)
+        && area_type_ == other.area_type_
+        && radius_ == other.radius_
+        && center_ == other.center_;
+}
+bool arealimit::operator!=(behavior const& other)
+{
+    return !(*this == other);
+}
+#endif /* !NDEBUG */
+
 arealimit::arealimit(area_type area_type, real radius, vector const& center)
     : behavior()
     , area_type_(area_type)
@@ -92,6 +133,19 @@ void arealimit::update(duration delta, env &env)
 }
 
 // ATTACK ON SIGHT
+#ifndef NDEBUG
+bool attack_on_sight::operator==(behavior const& o)
+{
+    attack_on_sight const& other = dynamic_cast<decltype(other)>(o);
+    return behavior::operator==(other)
+        && radius_ == other.radius_;
+}
+bool attack_on_sight::operator!=(behavior const& other)
+{
+    return !(*this == other);
+}
+#endif /* !NDEBUG */
+
 attack_on_sight::attack_on_sight(real radius)
     : behavior()
     , radius_(radius)

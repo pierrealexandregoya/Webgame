@@ -8,8 +8,8 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
 
-#include "misc/log.hpp"
-#include "misc/time.hpp"
+#include "log.hpp"
+#include "time.hpp"
 
 namespace asio = boost::asio;
 namespace beast = boost::beast;

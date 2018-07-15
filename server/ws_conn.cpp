@@ -5,10 +5,10 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
-#include "misc/json.hpp"
-#include "misc/log.hpp"
-#include "misc/utils.hpp"
-#include "misc/vector.hpp"
+#include "json.hpp"
+#include "log.hpp"
+#include "utils.hpp"
+#include "vector.hpp"
 
 class entity;
 
@@ -25,7 +25,7 @@ std::vector<std::string> const ws_conn::state_str = {
 
 #define CONN_LOG(to_log) LOG(addr_str, to_log)
 
-ws_conn::ws_conn(asio::ip::tcp::socket &socket, std::shared_ptr<entity const> entity)
+ws_conn::ws_conn(asio::ip::tcp::socket &&socket, std::shared_ptr<entity const> entity)
     : addr_str(socket.remote_endpoint().address().to_string() + ":" + std::to_string(socket.remote_endpoint().port()))
     , socket_(std::move(socket))
     , strand_(socket_.get_executor())
@@ -126,6 +126,8 @@ void ws_conn::on_accept(boost::system::error_code const& ec) noexcept
 
     do_read();
     state_ = reading;
+
+    write_next();
 
     write(std::make_shared<std::string const>(json_state_player(player_entity_)));
 }

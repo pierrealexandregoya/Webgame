@@ -7,7 +7,7 @@ set(Boost_USE_STATIC_LIBS TRUE)
 
 find_package(Boost
   REQUIRED
-  COMPONENTS system date_time regex filesystem
+  COMPONENTS system date_time regex filesystem serialization
   )
 
 set (SRC
@@ -22,6 +22,7 @@ set (SRC
     misc/log.hpp
     misc/nmoc.hpp
     misc/random.hpp
+    misc/serialization.hpp
     misc/time.hpp
     misc/utils.hpp
     misc/utils.cpp
@@ -30,22 +31,27 @@ set (SRC
 
     behavior.hpp
     behavior.cpp
+    entities.hpp
+    entities.cpp
     entity.hpp
     entity.cpp
     env.hpp
     env.cpp
-    main.cpp
-    server.cpp
-    server.hpp
+    persistence.hpp
+    redis_conn.hpp
+    redis_conn.cpp
     ws_conn.hpp
     ws_conn.cpp
 )
 
+include_directories(.)
+include_directories(misc)
+
+include_directories(third)
 include_directories(${Boost_INCLUDE_DIRS})
 
 
-
-add_definitions(-DBOOST_ASIO_NO_DEPRECATED)
+# add_definitions(-DBOOST_ASIO_NO_DEPRECATED)
 # add_definitions(-DBOOST_BIND_NO_PLACEHOLDERS)
 
 if(CMAKE_COMPILER_IS_GNUCXX)
@@ -63,13 +69,16 @@ endif()
 
 
 
-add_executable(webgame-server ${SRC})
-add_executable(webgame-test test.cpp misc/globals.cpp misc/log.hpp misc/time.hpp)
+add_executable(webgame-server server.hpp server.cpp main.cpp ${SRC})
+add_executable(webgame-test test.cpp ${SRC})
+add_executable(webgame-reset reset.cpp ${SRC})
 
 if(WIN32)
     target_link_libraries(webgame-server ${Boost_LIBRARIES})
     target_link_libraries(webgame-test ${Boost_LIBRARIES})
+    target_link_libraries(webgame-reset ${Boost_LIBRARIES})
 else()
     target_link_libraries(webgame-server ${Boost_LIBRARIES} pthread stdc++fs)
-    target_link_libraries(webgame-test ${Boost_LIBRARIES} pthread)
+    target_link_libraries(webgame-test ${Boost_LIBRARIES} pthread stdc++fs)
+    target_link_libraries(webgame-reset ${Boost_LIBRARIES} pthread stdc++fs)
 endif()

@@ -4,16 +4,25 @@
 
 #include <future>
 
+#include <boost/asio/connect.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/use_future.hpp>
+#include <boost/asio/streambuf.hpp>
+#include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
+#include <boost/variant/apply_visitor.hpp>
 
 #include "behavior.hpp"
 #include "entity.hpp"
 #include "env.hpp"
-#include "misc/json.hpp"
-#include "misc/log.hpp"
-#include "misc/time.hpp"
-#include "misc/vector.hpp"
+#include "json.hpp"
+#include "log.hpp"
+#include "redis_conn.hpp"
+#include "serialization.hpp"
+#include "time.hpp"
+#include "utils.hpp"
+#include "vector.hpp"
 #include "ws_conn.hpp"
 
 using namespace std::literals::chrono_literals;
@@ -27,30 +36,12 @@ server::server(unsigned int port, unsigned int threads)
     , new_client_socket_(io_context_)
     , tick_duration_(std::chrono::duration_cast<std::remove_const_t<decltype(tick_duration_)>>(0.250s))
     , stop_(new bool(false))
-{
-    // First ally NPC
-    add_entity({ 0.5f, 0.5f }, { 0.f, 0.f }, 0.2f, 0.2f, "npc_ally_1", behaviors({
-        { 0.f, std::make_shared<arealimit>(arealimit::Square, 0.5f, vector({ 0.5f, 0.5f }))} ,
-        {1.f, std::make_shared<walkaround>()},
-        }));
-
-    // First enemy NPC
-    add_entity({ -0.5f, -0.5f }, { 0.f, 0.f }, 0.4f, 0.4f, "npc_enemy_1", behaviors({
-        { 0.f, std::make_shared<arealimit>(arealimit::Square, 0.5f, vector({ -0.5f, -0.5f })) } ,
-        { 0.5f, std::make_shared<attack_on_sight>(0.7f) },
-        { 1.f, std::make_shared<stop>() },
-        //{ 1.f, std::make_shared<patrol>({,}, {,}, ...) },
-        }));
-
-    // 100 static objects centered at 0,0
-    const int s = 10;
-    for (int i = 0; i < s; ++i)
-        for (int j = 0; j < s; ++j)
-            add_entity({ i - s / 2.f , j - s / 2.f }, { 0.f, 0.f }, 0.f, 0.f, "object1");
-}
+{}
 
 void server::run()
 {
+    run_persistence();
+
     run_game();
 
     run_network();
@@ -82,6 +73,20 @@ void server::shutdown()
         LOG("SHUTDOWN", "Joining network thread " << t.get_id());
         t.join();
     }
+}
+
+void server::run_persistence()
+{
+    LOG("REDIS", "CONNECTING");
+    asio::ip::tcp::resolver resolver(io_context_);
+    auto res = resolver.resolve("localhost", "6379");
+    asio::ip::tcp::socket socket(io_context_);
+    asio::connect(socket, res.cbegin(), res.cend());
+    LOG("REDIS", "CONNECTED");
+
+    persistence_ = std::make_shared<redis_conn>(std::move(socket));
+
+    entities_ = persistence_->load_all_npes();
 }
 
 void server::run_game()
@@ -206,6 +211,7 @@ void server::game_cycle(unsigned int nb_ticks)
     assert(acceptor_.is_open());
     assert(!io_context_.stopped());
 
+    // Fixme: should have a helper in json.cpp
     // We build the remove message
     std::shared_ptr<std::string const> remove_msg;
     if (!ids_to_remove.empty())
@@ -263,6 +269,9 @@ void server::game_cycle(unsigned int nb_ticks)
             changed_entities.insert(p);
     }
 
+    // Save to redis
+    persistence_->save(entities_);
+
     // Serialize all entities with changes
     std::shared_ptr<std::string const> jsonentities;
     if (!changed_entities.empty())
@@ -315,9 +324,9 @@ void server::on_accept(const boost::system::error_code& ec) noexcept
         try {
             LOG("SERVER ACCEPT", "New connection from: " << new_client_socket_.remote_endpoint().address().to_string() + ":" + std::to_string(new_client_socket_.remote_endpoint().port()));
 
-            new_ent = add_entity({ 0.f, 0.f }, { 0.f, 0.f }, 1.f, 1.f, "player");
+            new_ent = entities_.add({ 0.f, 0.f }, { 0.f, 0.f }, 1.f, 1.f, "player");
 
-            new_conn = std::make_shared<ws_conn>(std::ref(new_client_socket_), new_ent);
+            new_conn = std::make_shared<ws_conn>(std::move(new_client_socket_), new_ent);
 
             assert(conns_.insert({ new_ent->id(), new_conn }).second);
 
@@ -346,7 +355,8 @@ void server::on_accept(const boost::system::error_code& ec) noexcept
     if (new_ent && new_conn)
     {
         new_conn->write(std::make_shared<std::string const>(std::move(json_entities)));
-        entities tmp = { {new_ent->id(), new_ent} };
+        entities tmp;
+        tmp.add(new_ent);
         auto new_entity_json = std::make_shared<std::string const>(json_state_entities(tmp));
         for (auto &c : conns_copy)
             c.second->write(new_entity_json);
@@ -358,13 +368,4 @@ void server::on_accept(const boost::system::error_code& ec) noexcept
 void server::do_accept()
 {
     acceptor_.async_accept(new_client_socket_, std::bind(&server::on_accept, shared_from_this(), std::placeholders::_1));
-}
-
-// totest: Args... and std::forward ?
-std::shared_ptr<entity> server::add_entity(vector const& pos, vector const& dir, real speed, real max_speed, std::string const& type, behaviors && behaviors)
-{
-    std::shared_ptr<entity> e = std::make_shared<entity>(pos, dir, speed, max_speed, type, std::move(behaviors));
-    auto r = entities_.insert(std::make_pair(e->id(), e));
-    assert(r.second);
-    return e;
 }

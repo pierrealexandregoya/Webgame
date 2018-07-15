@@ -4,7 +4,7 @@
 #include <string>
 
 // fixme: find a way to do a forward decl of boost::beast::multi_buffer::const_buffers_type
-#include <boost/beast/core/multi_buffer.hpp>
+#include <boost/beast/core/buffers_to_string.hpp>
 
 #include "filesystem.hpp"
 #include "nmoc.hpp"
@@ -63,4 +63,29 @@ to_time;\
 # define TIME_THIS(to_time) to_time
 #endif /* !NDEBUG */
 
-extern std::string get_readable(boost::beast::multi_buffer::const_buffers_type const& bufs);
+template<class ConstBufferSequence>
+std::string get_readable(ConstBufferSequence const& bufs)
+{
+    std::ostringstream ss;
+    for (auto const& b : bufs)
+        for (int i = 0; i < b.size(); ++i)
+        {
+            char c = static_cast<char const*>(b.data())[i];
+            if (isprint(c))
+                if (c == '\\')
+                    ss << "\\\\";
+                else
+                    ss << c;
+            else
+                ss << "\0x" << std::hex << static_cast<int>(static_cast<unsigned char>(c));
+        }
+    return ss.str();
+}
+
+template<class ConstBufferSequence>
+std::string buffer_to_string(ConstBufferSequence const& bufs, size_t n)
+{
+    std::string str = boost::beast::buffers_to_string(bufs);
+    str.resize(n);
+    return str;
+}

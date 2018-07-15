@@ -47,21 +47,3 @@ scope_time::~scope_time()
 
     LOG(msg_, std::chrono::duration_cast<readable_duration>(out_time - start_time).count() << " (+" << std::chrono::duration_cast<readable_duration>(out_time - in_time_).count() << ")");
 }
-
-std::string get_readable(boost::beast::multi_buffer::const_buffers_type const& bufs)
-{
-    std::ostringstream ss;
-    for (auto const& b : bufs)
-        for (int i = 0; i < b.size(); ++i)
-        {
-            char c = static_cast<char const*>(b.data())[i];
-            if (isprint(c))
-                if (c == '\\')
-                    ss << "\\\\";
-                else
-                    ss << c;
-            else
-                ss << "\0x" << std::hex << static_cast<int>(static_cast<unsigned char>(c));
-        }
-    return ss.str();
-}

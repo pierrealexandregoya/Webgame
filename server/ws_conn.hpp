@@ -12,8 +12,8 @@
 #include <boost/beast/websocket/stream.hpp>
 #include <boost/beast/core/multi_buffer.hpp>
 
-#include "misc/any.hpp"
-#include "misc/nmoc.hpp"
+#include "any.hpp"
+#include "nmoc.hpp"
 
 namespace beast = boost::beast;
 namespace asio = boost::asio;
@@ -64,7 +64,7 @@ private:
     NON_MOVABLE_OR_COPYABLE(ws_conn);
 
 public:
-    ws_conn(asio::ip::tcp::socket &socket, std::shared_ptr<entity const> player_entity);
+    ws_conn(asio::ip::tcp::socket &&socket, std::shared_ptr<entity const> player_entity);
 
     void                            start();
     void                            write(std::shared_ptr<std::string const> msg);
