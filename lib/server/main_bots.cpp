@@ -8,8 +8,7 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
 
-#include "log.hpp"
-#include "time.hpp"
+#include <webgame/log.hpp>
 
 namespace asio = boost::asio;
 namespace beast = boost::beast;
@@ -17,16 +16,40 @@ namespace beast = boost::beast;
 #define CHECK_DO(title, e, action)\
 if (e)\
 {\
-    LOG(title, e.message());\
+    WEBGAME_LOG(title, e.message());\
     action;\
 }\
 else\
 {\
-    LOG(title, "");\
+    WEBGAME_LOG(title, "");\
 }
 
 #define CHECK(title, e) CHECK_DO(title, e, )
 
+// We want deterministic random
+std::mt19937 g(0);
+std::uniform_real_distribution<> dis(-1.0, 1.0);
+
+
+char const consonants[] = "bcdfghjklmnpqrstvwxz";
+char const vowels[] = "aeiouy";
+
+std::uniform_int_distribution<unsigned int> consonants_rd(0, sizeof(consonants) / sizeof(*consonants) - 2);
+std::uniform_int_distribution<unsigned int> vowels_rd(0, sizeof(vowels) / sizeof(*vowels) - 2);
+
+unsigned int const nb_syllabus = 5;
+
+std::string gen_name()
+{
+    std::string name;
+    name.reserve(nb_syllabus * 2 + 1);
+    for (int i = 0; i < nb_syllabus; ++i)
+    {
+        name.push_back(consonants[consonants_rd(g)]);
+        name.push_back(vowels[vowels_rd(g)]);
+    }
+    return name;
+}
 
 std::string host = "localhost";
 std::string port = "2000";
@@ -45,7 +68,7 @@ int main(int ac, char **av)
     port = av[2];
     host = av[1];
 
-    title_max_size = 20;
+    webgame::title_max_size = 30;
 
     try
     {
@@ -64,11 +87,6 @@ int main(int ac, char **av)
             threads.emplace_back([&] {
 
             try {
-                // RANDOM
-                std::random_device rd;  //Will be used to obtain a seed for the random number engine
-                std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()
-                std::uniform_real_distribution<> dis(-1.0, 1.0);
-
                 // WS SOCKETS
                 using socket_type = beast::websocket::stream<asio::ip::tcp::socket>;
                 std::vector<socket_type> sockets;
@@ -81,23 +99,29 @@ int main(int ac, char **av)
 
                     // CONNECT
                     asio::connect(ws.next_layer(), results->begin(), results->end(), ec);
-                    CHECK_DO("CONNECT", ec, continue);
+                    CHECK_DO("CONNECTION", ec, continue);
 
                     // HANDSHAKE
                     ws.handshake(host, "/", ec);
                     CHECK_DO("HANDSHAKE", ec, ws.close(beast::websocket::close_code::abnormal); continue);
+
+                    // AUTHENTICATION
+                    std::string const playername = gen_name();
+                    ws.write(asio::buffer("{\"order\":\"authentication\", \"playername\":\"" + playername + "\"}"), ec);
+                    CHECK_DO("AUTHENTICATION (" << playername << ")", ec, ws.close(beast::websocket::close_code::abnormal); continue);
+
                     sockets.push_back(std::move(ws));
                 }
 
                 // LOOP
-                auto now = steady_clock::now();
-                auto write_time = 0.f;
-                auto close_time = 0.f;
+                auto now = std::chrono::steady_clock::now();
+                auto write_time = 0.;
+                auto close_time = 0.;
                 for (;;)
                 {
                     // TIME
-                    auto new_now = steady_clock::now();
-                    real d = (new_now - now).count() / 1000000000.;
+                    auto new_now = std::chrono::steady_clock::now();
+                    double d = std::chrono::duration_cast<std::chrono::duration<double>>(new_now - now).count() / 1000000000.;
                     now = new_now;
 
                     // STOP AND CLOSE ALL SOCKETS OF THIS THREAD AFTER 20 SECS
@@ -119,7 +143,7 @@ int main(int ac, char **av)
                     {
                         for (auto &ws : sockets)
                         {
-                            std::string text = "{\"order\": \"state\", \"suborder\": \"player\", \"speed\":0.1, \"vel\": {\"x\": " + std::to_string(dis(gen)) + ", \"y\": " + std::to_string(dis(gen)) + "}}";
+                            std::string text = "{\"order\": \"state\", \"suborder\": \"player\", \"speed\":0.1, \"vel\": {\"x\": " + std::to_string(dis(g)) + ", \"y\": " + std::to_string(dis(g)) + "}}";
                             ws.write(asio::buffer(text), ec);
                             CHECK_DO("WRITE", ec, ws.close(beast::websocket::close_code::abnormal, ec); continue);
                         }
@@ -143,14 +167,14 @@ int main(int ac, char **av)
                 }
             }
             catch (...) {
-                LOG("EXCEPTION THROWN", "");
+                WEBGAME_LOG("EXCEPTION THROWN", "");
             }
         });
 
         // JOIN ALL THREADS
         for (auto &t : threads)
         {
-            LOG("MAIN THREAD", "Joining " << t.get_id());
+            WEBGAME_LOG("MAIN THREAD", "Joining " << t.get_id());
             t.join();
         }
     }

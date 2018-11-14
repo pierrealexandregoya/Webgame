@@ -1,36 +1,28 @@
 #pragma once
 
+#include <nlohmann/json.hpp>
+
 #include "common.hpp"
+#include "config.hpp"
+#include "log.hpp"
 #include "nmoc.hpp"
-#include "serialization.hpp"
 #include "vector.hpp"
 
-class entity;
+namespace webgame {
+
+class npc;
 class env;
 
-class behavior
+//-----------------------------------------------------------------------------
+// BEHAVIOR
+
+class WEBGAME_API behavior
 {
-private:
-    friend class boost::serialization::access;
-    template<class Archive>
-    void serialize(Archive & ar, const unsigned int version)
-    {
-        //SERIALIZATION_LOG("behavior");
-        ar & resolved_;
-    }
+    WEBGAME_NON_MOVABLE_OR_COPYABLE(behavior);
 
 protected:
-    entity* self_;
-    bool    resolved_;
-
-private:
-    NON_MOVABLE_OR_COPYABLE(behavior);
-
-#ifndef NDEBUG
-public:
-    virtual bool operator==(behavior const& other);
-    virtual bool operator!=(behavior const& other);
-#endif /* !NDEBUG */
+    npc* self_;
+    bool resolved_;
 
 protected:
     behavior();
@@ -39,132 +31,121 @@ public:
     virtual ~behavior();
 
 public:
-    void set_self(entity *self);
+    virtual void update(double delta, env &env) = 0;
+
+    virtual nlohmann::json save() const;
+    virtual void           load(nlohmann::json const& j);
+
+    void        set_self(npc *self);
     bool const& resolved() const;
 
+#ifdef WEBGAME_TESTS
 public:
-    virtual void update(duration delta, env &env) = 0;
+    virtual bool operator==(behavior const& other) const;
+    virtual bool operator!=(behavior const& other) const;
+#endif /* WEBGAME_TESTS */
 };
 
-class walkaround : public behavior
+//-----------------------------------------------------------------------------
+// WALKAROUND
+
+class WEBGAME_API walkaround : public behavior
 {
-private:
-    friend class boost::serialization::access;
-    template<class Archive>
-    void serialize(Archive & ar, const unsigned int version)
-    {
-        //SERIALIZATION_LOG("walkaround");
-        ar & boost::serialization::base_object<behavior>(*this);
-        ar & t_;
-    }
+    WEBGAME_NON_MOVABLE_OR_COPYABLE(walkaround);
 
 private:
-    real t_;
-
-private:
-    NON_MOVABLE_OR_COPYABLE(walkaround);
-
-#ifndef NDEBUG
-public:
-    virtual bool operator==(behavior const& o);
-    virtual bool operator!=(behavior const& other);
-#endif /* !NDEBUG */
+    double t_;
 
 public:
     walkaround();
 
-    void update(duration delta, env &env) override;
+public:
+    virtual void update(double delta, env &env) override;
+    virtual nlohmann::json save() const override;
+    virtual void           load(nlohmann::json const& j) override;
+
+#ifdef WEBGAME_TESTS
+public:
+    virtual bool operator==(behavior const& o) const override;
+    virtual bool operator!=(behavior const& other) const override;
+#endif /* WEBGAME_TESTS */
 };
 
-class arealimit : public behavior
+//-----------------------------------------------------------------------------
+// AREALIMIT
+
+class WEBGAME_API arealimit : public behavior
 {
-private:
-    friend class boost::serialization::access;
-    template<class Archive>
-    void serialize(Archive & ar, const unsigned int version)
-    {
-        //SERIALIZATION_LOG("arealimit");
-        ar & boost::serialization::base_object<behavior>(*this);
-        ar & area_type_;
-        ar & radius_;
-        ar & center_;
-    }
+    WEBGAME_NON_MOVABLE_OR_COPYABLE(arealimit);
 
 public:
     enum area_type
     {
-        Square,
-        Circle,
+        square,
+        circle,
     };
 
 private:
-    area_type   area_type_;
-    real        radius_;
-    vector      center_;
+    area_type area_type_;
+    double    radius_;
+    vector    center_;
 
-private:
-    NON_MOVABLE_OR_COPYABLE(arealimit);
+public:
     arealimit() = default;
-
-#ifndef NDEBUG
-public:
-    virtual bool operator==(behavior const& o);
-    virtual bool operator!=(behavior const& other);
-#endif /* !NDEBUG */
+    arealimit(area_type type, double radius, vector const& center);
 
 public:
-    arealimit(area_type type, real radius, vector const& center);
+    virtual void           update(double delta, env &env) override;
+    virtual nlohmann::json save() const override;
+    virtual void           load(nlohmann::json const& j) override;
 
-    void update(duration delta, env &env) override;
+#ifdef WEBGAME_TESTS
+public:
+    virtual bool operator==(behavior const& o) const override;
+    virtual bool operator!=(behavior const& other) const override;
+#endif /* WEBGAME_TESTS */
 };
 
-class attack_on_sight : public behavior
+//-----------------------------------------------------------------------------
+// ATTACK ON SIGHT
+
+class WEBGAME_API attack_on_sight : public behavior
 {
-private:
-    friend class boost::serialization::access;
-    template<class Archive>
-    void serialize(Archive & ar, const unsigned int version)
-    {
-        //SERIALIZATION_LOG("attack_on_sight");
-        ar & boost::serialization::base_object<behavior>(*this);
-        ar & radius_;
-    }
+    WEBGAME_NON_MOVABLE_OR_COPYABLE(attack_on_sight);
 
 private:
-    real  radius_;
+    double radius_;
 
-private:
-    NON_MOVABLE_OR_COPYABLE(attack_on_sight);
+public:
     attack_on_sight() = default;
-
-#ifndef NDEBUG
-public:
-    virtual bool operator==(behavior const& o);
-    virtual bool operator!=(behavior const& other);
-#endif /* !NDEBUG */
+    attack_on_sight(double radius);
 
 public:
-    attack_on_sight(real radius);
+    virtual void           update(double delta, env &env) override;
+    virtual nlohmann::json save() const override;
+    virtual void           load(nlohmann::json const& j) override;
 
-    void update(duration delta, env &env) override;
+#ifdef WEBGAME_TESTS
+public:
+    virtual bool operator==(behavior const& o) const override;
+    virtual bool operator!=(behavior const& other) const override;
+#endif /* WEBGAME_TESTS */
 };
 
-class stop : public behavior
-{
-private:
-    friend class boost::serialization::access;
-    template<class Archive>
-    void serialize(Archive & ar, const unsigned int version)
-    {
-        //SERIALIZATION_LOG("stop");
-        ar & boost::serialization::base_object<behavior>(*this);
-    }
+//-----------------------------------------------------------------------------
+// STOP
 
-private:
-    NON_MOVABLE_OR_COPYABLE(stop);
+class WEBGAME_API stop : public behavior
+{
+    WEBGAME_NON_MOVABLE_OR_COPYABLE(stop);
 
 public:
     stop() = default;
 
-    void update(duration delta, env &env) override;
+public:
+    virtual void           update(double delta, env &env) override;
+    virtual nlohmann::json save() const override;
+    virtual void           load(nlohmann::json const& j) override;
 };
+
+} // namespace webgame

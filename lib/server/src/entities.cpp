@@ -1,21 +1,20 @@
 #include "entities.hpp"
 
+#include "config.hpp"
 #include "entity.hpp"
+//#include "npc.hpp"
+//#include "player.hpp"
+//#include "stationnary_entity.hpp"
 
-std::shared_ptr<entity> const& entities::add(vector const& pos, vector const& dir, real speed, real max_speed, std::string const& type, behaviors_t && behaviors)
-{
-    return add(entity(pos, dir, speed, max_speed, type, std::move(behaviors)));
-}
+namespace webgame {
 
-std::shared_ptr<entity> const& entities::add(entity && ent)
-{
-    std::shared_ptr<entity> ent_ptr = std::make_shared<entity>(std::move(ent));
-    return add(const_cast<std::shared_ptr<entity> const&>(ent_ptr));
-}
+template class WEBGAME_API entity_container<entity>;
+//template class WEBGAME_API entity_container<located_entity>;
+//template class WEBGAME_API entity_container<stationnary_entity>;
+//template class WEBGAME_API entity_container<mobile_entity>;
+//template class WEBGAME_API entity_container<npc>;
+//template class WEBGAME_API entity_container<player>;
 
-std::shared_ptr<entity> const& entities::add(std::shared_ptr<entity> const& ent_ptr)
-{
-    auto ret = this->insert(std::make_pair(ent_ptr->id(), ent_ptr));
-    assert(ret.second);
-    return ret.first->second;
-}
+//template WEBGAME_API entity_container<entity>::operator entity_container<located_entity>;
+
+} // namespace webgame

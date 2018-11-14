@@ -1,25 +1,61 @@
-#include "redis_conn.hpp"
+#include "redis_persistence.hpp"
 
-#include <bredis/Connection.hpp>
-#include <bredis/Extract.hpp>
-#include <bredis/MarkerHelpers.hpp>
+#include <memory>
 
-#include "utils.hpp"
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/connect.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/serialization/shared_ptr.hpp>
 
-redis_conn::redis_conn(boost::asio::ip::tcp::socket &&socket)
-    : socket_(std::move(socket))
+#include "entities.hpp"
+#include "log.hpp"
+#include "npc.hpp"
+#include "player.hpp"
+#include "redis_helper.hpp"
+#include "save_load.hpp"
+
+namespace asio = boost::asio;
+
+namespace webgame {
+
+redis_persistence::redis_persistence(boost::asio::io_context &io_context, std::string const& host, unsigned short port, unsigned int index)
+    : socket_(io_context)
+    , host_(host)
+    , port_(port)
+    , index_(index)
 {}
 
-void redis_conn::save(entities const& ents)
+bool redis_persistence::start()
 {
-    LOG("REDIS", "SAVING " << ents.size() << " ENTITIES");
+    try {
+        asio::ip::tcp::resolver resolver(socket_.get_io_context());
 
-    std::vector<std::shared_ptr<std::string>> args;
-    args.reserve(ents.size() * 2);
-    bredis::command_container_t cmds;
-    cmds.reserve(ents.size());
+        asio::ip::basic_resolver_results<asio::ip::tcp> resolve_results = resolver.resolve(host_, std::to_string(port_));
 
-    // Build all SET commands
+        asio::connect(socket_, resolve_results.cbegin(), resolve_results.cend());
+
+        helper_ = std::make_shared<redis_helper>(socket_);
+
+        helper_->select(index_);
+
+        return true;
+    }
+    catch (...) {
+        helper_.reset();
+        return false;
+    }
+}
+
+void redis_persistence::stop()
+{
+    helper_.reset();
+}
+
+void redis_persistence::async_save(entities const& ents, std::function<save_handler> &&handler)
+{
+    std::vector<std::pair<std::string, std::string>> keys_values;
+
+    keys_values.reserve(ents.size());
     for (auto const& e : ents)
     {
         std::string key;
@@ -29,133 +65,86 @@ void redis_conn::save(entities const& ents)
             key = "npe";
         key += ":" + std::to_string(e.first);
 
-        std::string value = serialize(*e.second);
+        std::string value = e.second->save().dump();
 
-        std::string &key_ref = *args.emplace_back(std::make_shared<std::string>(std::move(key)));
-        std::string &value_ref = *args.emplace_back(std::make_shared<std::string>(std::move(value)));
-
-        cmds.push_back(bredis::single_command_t("SET", key_ref, value_ref));
+        keys_values.emplace_back(std::make_pair(std::move(key), std::move(value)));
     }
 
-    // Send transaction
-    std::vector<bredis::extracts::extraction_result_t> result_array = redis_send_transaction(cmds);
-
-    // Check results of all SET commands
-    for (bredis::extracts::extraction_result_t const& set_result : result_array)
-    {
-        if (!(boost::get<bredis::extracts::string_t>(set_result).str == "OK"))
-            LOG("REDIS", "ERROR ON \"EXEC\" command, expected OK, got:" << boost::get<bredis::extracts::string_t>(set_result).str);
-    }
+    auto this_p = shared_from_this();
+    auto handler_p = std::make_shared<std::function<save_handler>>(std::move(handler));
+    helper_->async_multi_set(keys_values, [this_p, handler_p] {
+        (*handler_p)();
+    });
 }
 
-entities redis_conn::load_all_npes()
+entities redis_persistence::load_all_npes()
 {
-    LOG("REDIS", "LOADING ALL NON PLAYABLE ENTITIES");
+    WEBGAME_LOG("REDIS", "LOADING ALL NON PLAYABLE ENTITIES");
 
-    // Get all npes' key
-    socket_.write(bredis::single_command_t("KEYS", "npe:*"));
-
-    bredis::positive_parse_result_t<it_t, policy_t> redis_result = socket_.read(read_buffer_);
-    bredis::extracts::extraction_result_t extract = boost::apply_visitor(bredis::extractor<it_t>(), redis_result.result);
-    read_buffer_.consume(redis_result.consumed);
-
-    std::list<std::string> keys;
-
-    bredis::extracts::array_holder_t &keys_results = boost::get<bredis::extracts::array_holder_t>(extract);
-    for (auto const& keys_result : keys_results.elements)
-        keys.emplace_back(std::move(boost::get<bredis::extracts::string_t>(keys_result).str));
+    std::vector<std::string> keys = helper_->keys("npe:*");
 
     if (keys.empty())
     {
-        LOG("REDIS", "NOTHING TO LOAD");
+        WEBGAME_LOG("REDIS", "NOTHING TO LOAD");
         return entities();
     }
 
-    // Build all GET commands
-    std::vector<std::shared_ptr<std::string>> args;
-    args.reserve(keys.size());
-    bredis::command_container_t cmds;
-    cmds.reserve(keys.size());
+    std::vector<std::string> values = helper_->multi_get(keys);
 
-    for (std::string const& key : keys)
-    {
-        std::string &key_ref = *args.emplace_back(std::make_shared<std::string>(key));
-        cmds.push_back(bredis::single_command_t("GET", key_ref));
-    }
-
-
-    // Send transaction
-    std::vector<bredis::extracts::extraction_result_t> result_array = redis_send_transaction(cmds);
-
-    // get and deserialize received values, build an entity container
     entities ents;
-    for (bredis::extracts::extraction_result_t const& get_result : result_array)
-    {
-        std::string const& get_result_str = boost::get<bredis::extracts::string_t>(get_result).str;
-        entity ent = deserialize<entity>(get_result_str);
-        auto ent_ptr = std::make_shared<entity>(std::move(ent));
-        ents.add(ent_ptr);
-    }
+    for (std::string const& value : values)
+        ents.add(load_entity(nlohmann::json::parse(value)));
     return ents;
 }
 
-std::shared_ptr<entity> redis_conn::load_player(std::string const& name)
+void redis_persistence::async_load_player(std::string const& name, std::function<load_player_handler> &&handler)
 {
-    LOG("REDIS", "LOADING PLAYER " << name);
+    WEBGAME_LOG("REDIS", "LOAD PLAYER " << name);
 
-    socket_.write(bredis::single_command_t("GET", "player:" + name));
+    auto this_p = shared_from_this();
+    auto name_p = std::make_shared<std::string>(name);
+    auto handler_p = std::make_shared<std::function<load_player_handler>>(std::move(handler));
 
-    bredis::positive_parse_result_t<it_t, policy_t> redis_result = socket_.read(read_buffer_);
+    helper_->async_get("playername:" + name, [this_p, name_p, handler_p](bool success, std::string && value) {
+        // Player does not exist yet
+        if (!success)
+        {
+            WEBGAME_LOG("REDIS", "PLAYER DOES NOT EXIST, CREATING IT");
+            // We create a default entity
+            auto new_ent = std::make_shared<player>();
 
-    bredis::extracts::extraction_result_t extract = boost::apply_visitor(bredis::extractor<it_t>(), redis_result.result);
+            WEBGAME_LOG("REDIS", "STORING IT IN player:<id> table");
+            // We serialize it and store it in player:<id> table
+            this_p->helper_->async_set("player:" + std::to_string(new_ent->id()), new_ent->save().dump(), [this_p, name_p, handler_p, new_ent]() {
 
-    read_buffer_.consume(redis_result.consumed);
+                WEBGAME_LOG("REDIS", "STORING ITS ID IN playername:<name> table");
+                // We set its id in playername:<name> table
+                this_p->helper_->async_set("playername:" + *name_p, std::to_string(new_ent->id()), [this_p, handler_p, new_ent]() {
 
-    std::string const& get_result_str = boost::get<bredis::extracts::string_t>(extract).str;
+                    WEBGAME_LOG("REDIS", "LOAD PLAYER DONE, CALLING HANDLER");
+                    (*handler_p)(new_ent);
+                });
 
-    entity ent = deserialize<decltype(ent)>(get_result_str);
+            });
+        }
+        // Player exists, we get its serialization and create an entity
+        else
+        {
+            WEBGAME_LOG("REDIS", "PLAYER EXISTS, LOADING IT");
+            this_p->helper_->async_get("player:" + value, [this_p, name_p, handler_p](bool success, std::string && value) {
+                if (!success)
+                    throw std::runtime_error("redis_persistence: player's id found but the corresponding serialized entity does not exist");
 
-    return std::make_shared<decltype(ent)>(std::move(ent));
+                WEBGAME_LOG("REDIS", "LOAD PLAYER DONE, CALLING HANDLER");
+                (*handler_p)(std::dynamic_pointer_cast<player>(load_entity(nlohmann::json::parse(value))));
+            });
+        }
+    });
 }
 
-void redis_conn::remove_all()
+void redis_persistence::remove_all()
 {
-    LOG("REDIS", "FLUSHING DB");
-    socket_.write(bredis::single_command_t("FLUSHDB"));
-    auto redis_result = socket_.read(read_buffer_);
-    if (!boost::apply_visitor(bredis::marker_helpers::equality<it_t>("OK"), redis_result.result))
-        LOG("REDIS", "ERROR, REDIS RESPONSE=" << buffer_to_string(read_buffer_.data(), redis_result.consumed));
-    read_buffer_.consume(redis_result.consumed);
+    helper_->flushdb();
 }
 
-std::vector<bredis::extracts::extraction_result_t> redis_conn::redis_send_transaction(bredis::command_container_t const& cmds)
-{
-    bredis::command_container_t transaction;
-    transaction.reserve(cmds.size() + 2);
-    transaction.push_back(bredis::single_command_t("MULTI"));
-    transaction.insert(transaction.end(), cmds.cbegin(), cmds.cend());
-    transaction.push_back(bredis::single_command_t("EXEC"));
-
-    // Send transaction
-    socket_.write(bredis::command_wrapper_t(transaction));
-
-    // Read and check redis response
-    bredis::positive_parse_result_t<it_t, policy_t> redis_result = socket_.read(read_buffer_);
-
-    if (!boost::apply_visitor(bredis::marker_helpers::equality<it_t>("OK"), redis_result.result))
-        LOG("REDIS", "ERROR ON \"MULTI\" command, expected OK, got:" << buffer_to_string(read_buffer_.data(), redis_result.consumed));
-    read_buffer_.consume(redis_result.consumed);
-
-    for (int i = 0; i < cmds.size(); ++i)
-    {
-        redis_result = socket_.read(read_buffer_);
-        if (!boost::apply_visitor(bredis::marker_helpers::equality<it_t>("QUEUED"), redis_result.result))
-            LOG("REDIS", "ERROR ON \"SET\" command, expected QUEUED, got:" << buffer_to_string(read_buffer_.data(), redis_result.consumed));
-        read_buffer_.consume(redis_result.consumed);
-    }
-
-    redis_result = socket_.read(read_buffer_);
-    bredis::extracts::extraction_result_t extract = boost::apply_visitor(bredis::extractor<it_t>(), redis_result.result);
-    read_buffer_.consume(redis_result.consumed);
-    return std::move(boost::get<bredis::extracts::array_holder_t>(extract).elements);
-}
+} // namespace webgame

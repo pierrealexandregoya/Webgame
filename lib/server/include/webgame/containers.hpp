@@ -1,12 +1,11 @@
 #pragma once
 
-#include <map>
 #include <memory>
+#include <list>
 
-#include "common.hpp"
+namespace webgame {
 
-class behavior;
-typedef std::multimap<int, std::shared_ptr<behavior> /*const*/> behaviors_t;
+class player_conn;
+typedef std::list<std::shared_ptr<player_conn>> connections;
 
-class ws_conn;
-typedef std::map<id_t, std::shared_ptr<ws_conn> const> connections;
+} // namespace webgame

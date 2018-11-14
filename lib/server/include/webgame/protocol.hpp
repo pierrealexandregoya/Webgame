@@ -1,12 +1,16 @@
 #pragma once
 
+#include <memory>
 #include <string>
 
-#include "containers.hpp"
+#include "config.hpp"
+#include "entities.hpp"
 
-class entities;
-class entity;
+namespace webgame {
 
-// Protocole helpers
-extern std::string json_state_entities(entities const& entities);
-extern std::string json_state_player(std::shared_ptr<entity const> e);
+class player;
+
+WEBGAME_API extern std::string json_state_entities(entities const& entities);
+WEBGAME_API extern std::string json_state_player(std::shared_ptr<player const> e);
+
+} // namespace webgame

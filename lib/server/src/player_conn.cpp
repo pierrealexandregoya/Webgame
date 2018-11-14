@@ -1,21 +1,32 @@
-#include "ws_conn.hpp"
+#include "player_conn.hpp"
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
-#include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
 
-#include "json.hpp"
+#include "any.hpp"
+#include "lock.hpp"
 #include "log.hpp"
+#include "player.hpp"
+#include "protocol.hpp"
+#include "server.hpp"
 #include "utils.hpp"
 #include "vector.hpp"
 
+namespace asio = boost::asio;
+namespace beast = boost::beast;
+
+namespace webgame {
+
 class entity;
 
-std::vector<std::string> const ws_conn::state_str = {
+std::vector<std::string> const player_conn::state_str = {
     "none",
     "ready",
     "handshaking",
+    "authenticating",
+    "loading_player",
     "reading",
     "writing",
     "to_be_closed",
@@ -23,96 +34,109 @@ std::vector<std::string> const ws_conn::state_str = {
     "closed"
 };
 
-#define CONN_LOG(to_log) LOG(addr_str, to_log)
+#define CONN_LOG(to_log) WEBGAME_LOG(addr_str, to_log)
 
-ws_conn::ws_conn(asio::ip::tcp::socket &&socket, std::shared_ptr<entity const> entity)
+player_conn::patch::patch(std::string &&w, any &&v)
+    : what(std::move(w))
+    , value(std::move(v))
+{}
+
+player_conn::player_conn(asio::ip::tcp::socket &&socket, std::shared_ptr<server> const& server)
     : addr_str(socket.remote_endpoint().address().to_string() + ":" + std::to_string(socket.remote_endpoint().port()))
     , socket_(std::move(socket))
     , strand_(socket_.get_executor())
     , state_(none)
-    , player_entity_(entity)
     , close_code_(beast::websocket::close_code::none)
+    , server_(server)
+    , close_timer_(socket_.get_executor().context())
 {
     state_ = ready;
     socket_.auto_fragment(true);
 
-    /*socket_.control_callback([&](beast::websocket::frame_type f, beast::string_view s) {
-    });*/
-
     CONN_LOG("CONNECTED");
 }
 
-void ws_conn::start()
+void player_conn::start()
 {
-    std::lock_guard<decltype(handlers_mutex_)> l(handlers_mutex_);
+    WEBGAME_LOCK(handlers_mutex_);
 
-    socket_.async_accept(asio::bind_executor(strand_, std::bind(&ws_conn::on_accept, shared_from_this(), std::placeholders::_1)));
+    socket_.async_accept(asio::bind_executor(strand_, std::bind(&player_conn::on_accept, shared_from_this(), std::placeholders::_1)));
     state_ = handshaking;
 }
 
-void ws_conn::write(std::shared_ptr<std::string const> msg)
+void player_conn::write(std::shared_ptr<std::string const> msg)
 {
-    std::lock_guard<decltype(handlers_mutex_)> l(handlers_mutex_);
+    WEBGAME_LOCK(handlers_mutex_);
 
     to_write_.emplace_back(msg);
 
     if (to_write_.size() == 1)
-        asio::post(socket_.get_executor(), asio::bind_executor(strand_, std::bind(&ws_conn::write_next, shared_from_this())));
+        asio::post(socket_.get_executor(), asio::bind_executor(strand_, std::bind(&player_conn::write_next, shared_from_this())));
 }
 
-void ws_conn::close()
+void player_conn::close()
 {
     if (socket_.get_executor().running_in_this_thread())
         do_close(beast::websocket::close_code::normal);
     else
-        asio::post(socket_.get_executor(), asio::bind_executor(strand_, std::bind(&ws_conn::do_close, shared_from_this(), beast::websocket::close_code::normal)));
+        asio::post(socket_.get_executor(), asio::bind_executor(strand_, std::bind(&player_conn::do_close, shared_from_this(), beast::websocket::close_code::normal)));
 }
 
-bool ws_conn::pop_patch(patch &out)
+player_conn::patch player_conn::pop_patch()
 {
-    std::lock_guard<decltype(patches_mutex_)> l(patches_mutex_);
+    WEBGAME_LOCK(patches_mutex_);
 
-    if (patches_.empty())
-        return false;
-    out = patches_.front();
+    patch p = std::move(patches_.front());
     patches_.pop();
-    return true;
+    return p;
 }
 
-ws_conn::socket_t& ws_conn::socket()
+bool player_conn::has_patch() const
 {
-    return socket_;
+    WEBGAME_LOCK(patches_mutex_);
+
+    return !patches_.empty();
 }
 
-bool ws_conn::is_closed() const
+bool player_conn::is_closed() const
 {
     return state_ == closed;
 }
 
-std::shared_ptr<entity const> ws_conn::player_entity() const
+std::shared_ptr<player> const& player_conn::player_entity() const
 {
     return player_entity_;
 }
 
-ws_conn::state ws_conn::current_state() const
+player_conn::state player_conn::current_state() const
 {
     return state_;
 }
 
-void ws_conn::write_next()
+bool player_conn::is_ready() const
 {
-    std::lock_guard<decltype(handlers_mutex_)> l(handlers_mutex_);
+    return state_ == reading || state_ == writing;
+}
 
-    if (state_ != reading || to_write_.empty())
+std::string const& player_conn::player_name() const
+{
+    return player_name_;
+}
+
+void player_conn::write_next()
+{
+    WEBGAME_LOCK(handlers_mutex_);
+
+    if (/*state_ != reading || */to_write_.empty())
         return;
 
-    socket_.async_write(asio::buffer(*to_write_.back()), asio::bind_executor(strand_, std::bind(&ws_conn::on_write, shared_from_this(), std::placeholders::_1, std::placeholders::_2)));
+    socket_.async_write(asio::buffer(*to_write_.front()), asio::bind_executor(strand_, std::bind(&player_conn::on_write, shared_from_this(), std::placeholders::_1, std::placeholders::_2)));
     state_ = writing;
 }
 
-void ws_conn::on_accept(boost::system::error_code const& ec) noexcept
+void player_conn::on_accept(boost::system::error_code const& ec) noexcept
 {
-    std::lock_guard<decltype(handlers_mutex_)> l(handlers_mutex_);
+    WEBGAME_LOCK(handlers_mutex_);
 
     if (ec)
     {
@@ -125,16 +149,12 @@ void ws_conn::on_accept(boost::system::error_code const& ec) noexcept
     CONN_LOG("HANDSHAKED");
 
     do_read();
-    state_ = reading;
-
-    write_next();
-
-    write(std::make_shared<std::string const>(json_state_player(player_entity_)));
+    state_ = authenticating;
 }
 
-void ws_conn::on_read(boost::system::error_code const& ec, std::size_t const& bytes_transferred) noexcept
+void player_conn::on_read(boost::system::error_code const& ec, std::size_t const& bytes_transferred) noexcept
 {
-    std::lock_guard<decltype(handlers_mutex_)> l(handlers_mutex_);
+    WEBGAME_LOCK(handlers_mutex_);
 
     assert(state_ != closed);
 
@@ -150,7 +170,7 @@ void ws_conn::on_read(boost::system::error_code const& ec, std::size_t const& by
         }
         else
         {
-            CONN_LOG("SESSION CLOSED");
+            CONN_LOG("READ: SESSION CLOSED");
             state_ = closed;
         }
 
@@ -162,55 +182,33 @@ void ws_conn::on_read(boost::system::error_code const& ec, std::size_t const& by
         read_buffer_.consume(read_buffer_.size());
         return;
     }
+    else if (state_ == loading_player)
+    {
+        CONN_LOG("READ: ERROR: NOT SUPPOSE TO RECEIVE DATA WHILE LOADING PLAYER ENTITY");
+        do_close(beast::websocket::close_code::abnormal);
+        do_read();
+        return;
+    }
 
     if (io_log && data_log)
         CONN_LOG("READ " << bytes_transferred << " BYTES: " << std::endl << get_readable(read_buffer_.data()));
     else if (io_log)
         CONN_LOG("READ " << bytes_transferred << " BYTES");
 
-    auto str = boost::beast::buffers_to_string(read_buffer_.data());
+    std::string order_str = boost::beast::buffers_to_string(read_buffer_.data());
     read_buffer_.consume(read_buffer_.size());
 
-    std::istringstream iss(str);
-    boost::property_tree::ptree ptree;
-
-    try {
-        boost::property_tree::read_json(iss, ptree);
-
-        std::string order = ptree.get<std::string>("order");
-        if (order == "state")
-        {
-            std::string suborder = ptree.get<std::string>("suborder");
-            if (suborder == "player")
-            {
-                std::lock_guard<decltype(patches_mutex_)> l(patches_mutex_);
-                if (ptree.find("speed") != ptree.not_found())
-                    push_patch("speed", any(ptree.get<real>("speed")));
-
-                if (ptree.find("vel") != ptree.not_found() && ptree.find("vel") != ptree.not_found())
-                    push_patch("vel", any(vector({ ptree.get<real>("vel.x"), ptree.get<real>("vel.y") })));
-
-                if (ptree.find("targetPos") != ptree.not_found() && ptree.find("targetPos") != ptree.not_found())
-                    push_patch("targetPos", any(vector({ ptree.get<real>("targetPos.x"), ptree.get<real>("targetPos.y") })));
-            }
-        }
-    }
-    catch (boost::property_tree::json_parser_error const& e) {
-        CONN_LOG("READ: JSON PARSER ERROR: " << e.what());
-    }
-    catch (...) {
-        CONN_LOG("READ: EXCEPTION THROWN");
-    }
+    interpret(std::move(order_str));
 
     do_read();
 }
 
-void ws_conn::on_write(beast::error_code const& ec, std::size_t const& bytes_transferred) noexcept
+void player_conn::on_write(beast::error_code const& ec, std::size_t const& bytes_transferred) noexcept
 {
-    std::lock_guard<decltype(handlers_mutex_)> l(handlers_mutex_);
+    WEBGAME_LOCK(handlers_mutex_);
 
-    auto msg = to_write_.back();
-    to_write_.pop_back();
+    auto msg = to_write_.front();
+    to_write_.pop_front();
 
     if (ec)
     {
@@ -234,7 +232,10 @@ void ws_conn::on_write(beast::error_code const& ec, std::size_t const& bytes_tra
 
     if (ec)
     {
-        do_close(close_code_);
+        // fixme: in certains case (operation aborted), the socket is going to
+        // be closed at the same time. Either do not close here, or handle
+        // double close cases
+        //do_close(close_code_);
         return;
     }
 
@@ -247,19 +248,41 @@ void ws_conn::on_write(beast::error_code const& ec, std::size_t const& bytes_tra
     write_next();
 }
 
-void ws_conn::on_close() noexcept
-{}
-
-void ws_conn::do_read()
+void player_conn::on_close() noexcept
 {
-    socket_.async_read(read_buffer_, asio::bind_executor(strand_, std::bind(&ws_conn::on_read, shared_from_this(), std::placeholders::_1, std::placeholders::_2)));
+    WEBGAME_LOCK(handlers_mutex_);
+    if (close_timer_.cancel() == 1)
+        CONN_LOG("ON CLOSE: GRACEFUL CLOSE");
+    else
+        CONN_LOG("ON CLOSE: FORCED CLOSE");
 }
 
-void ws_conn::do_close(beast::websocket::close_code const& code)
+void player_conn::on_player_load(std::shared_ptr<player> const& player_entity)
 {
-    std::lock_guard<decltype(handlers_mutex_)> l(handlers_mutex_);
+    CONN_LOG("PLAYER LOADED id=" << player_entity->id());
 
-    assert(state_ != closed);
+    player_entity_ = player_entity;
+    player_entity->set_conn(shared_from_this());
+
+    server_->register_player(shared_from_this(), player_entity);
+
+    state_ = reading;
+}
+
+void player_conn::do_read()
+{
+    socket_.async_read(read_buffer_, asio::bind_executor(strand_, std::bind(&player_conn::on_read, shared_from_this(), std::placeholders::_1, std::placeholders::_2)));
+}
+
+void player_conn::do_close(beast::websocket::close_code const& code)
+{
+    WEBGAME_LOCK(handlers_mutex_);
+
+    if (state_ == closed || state_ == closing)
+    {
+        CONN_LOG("WARNING: TRYING TO CLOSE BUT SOCKET IS ALREADY IN " << (state_ == closed ? "CLOSED" : "CLOSING") << " STATE");
+        return;
+    }
 
     if (state_ == writing)
     {
@@ -271,23 +294,90 @@ void ws_conn::do_close(beast::websocket::close_code const& code)
 
     CONN_LOG("CLOSING");
 
-    socket_.async_close(code, asio::bind_executor(strand_, std::bind(&ws_conn::on_close, shared_from_this())));
+    // If the endpoint does not acknowledge the close after N seconds, we force it by closing the underlying tcp socket
+    close_timer_.expires_after(std::chrono::seconds(10));
+    std::shared_ptr<player_conn> this_p = shared_from_this();
+    close_timer_.async_wait([this, this_p](boost::system::error_code const& error) {
+        WEBGAME_LOCK(handlers_mutex_);
+        if (state_ != closed && socket_.next_layer().is_open())
+        {
+            CONN_LOG("WEBSOCKET CLOSE DID NOT SUCCEED. CLOSING THE TCP SOCKET");
+            socket_.next_layer().shutdown(asio::ip::tcp::socket::shutdown_both);
+            socket_.next_layer().close();
+        }
+    });
+
+    socket_.async_close(code, asio::bind_executor(strand_, std::bind(&player_conn::on_close, shared_from_this())));
     state_ = closing;
 }
 
-void ws_conn::push_patch(std::string const& what, any const& value)
+void player_conn::interpret(std::string &&order_str)
 {
-    std::lock_guard<decltype(patches_mutex_)> l(patches_mutex_);
+    CONN_LOG("INTERPRETING " << order_str);
+    std::istringstream iss(std::move(order_str));
+    boost::property_tree::ptree ptree;
 
-    patch p;
-    p.what = what;
-    p.value = value;
-    push_patch(p);
+    try {
+        boost::property_tree::read_json(iss, ptree);
+
+        std::string order = ptree.get<std::string>("order");
+        if (state_ == authenticating)
+        {
+            if (order != "authentication")
+                throw std::runtime_error("AUTHENTICATION: NOT AN AUTHENTICATION ORDER");
+
+            std::string player_name = ptree.get<std::string>("player_name");
+            if (server_->is_player_connected(player_name))
+                throw std::runtime_error("AUTHENTICATION: PLAYER " + player_name + " ALREADY CONNECTED");
+
+            if (player_name.empty())
+                throw std::runtime_error("AUTHENTICATION: INVALID PLAYER NAME");
+
+            player_name_ = player_name;
+
+            CONN_LOG("LOADING PLAYER " << player_name_);
+            server_->get_persistence()->async_load_player(player_name_, std::bind(&player_conn::on_player_load, shared_from_this(), std::placeholders::_1));
+            state_ = loading_player;
+        }
+        else if (order == "action")
+        {
+            std::string suborder = ptree.get<std::string>("suborder");
+            WEBGAME_LOCK(patches_mutex_);
+
+            if (suborder == "change_speed")
+                push_patch("speed", any(ptree.get<double>("speed")));
+            else if (suborder == "change_dir")
+                push_patch("dir", any(vector({ ptree.get<double>("dir.x"), ptree.get<double>("dir.y") })));
+            else if (suborder == "move_to")
+                push_patch("target_pos", any(vector({ ptree.get<double>("target_pos.x"), ptree.get<double>("target_pos.y") })));
+            else
+                throw std::runtime_error("UNKNOWN ACTION: " + suborder);
+        }
+        else
+            throw std::runtime_error("UNKNOWN ORDER: " + order);
+    }
+    catch (boost::property_tree::json_parser_error const& e) {
+        CONN_LOG("INTERPRET ERROR: JSON PARSER ERROR: " << e.what());
+        do_close(beast::websocket::close_code::abnormal);
+    }
+    catch (std::runtime_error const& e) {
+        CONN_LOG("INTERPRET ERROR: " << e.what());
+        do_close(beast::websocket::close_code::abnormal);
+    }
 }
 
-void ws_conn::push_patch(patch const& p)
+void player_conn::push_patch(std::string && what, any && value)
 {
-    std::lock_guard<decltype(patches_mutex_)> l(patches_mutex_);
+    WEBGAME_LOCK(patches_mutex_);
 
-    patches_.push(p);
+    push_patch(patch(std::move(what), std::move(value)));
 }
+
+void player_conn::push_patch(patch && p)
+{
+    WEBGAME_LOCK(patches_mutex_);
+
+    patches_.emplace(std::move(p));
+}
+
+} // namespace webgame

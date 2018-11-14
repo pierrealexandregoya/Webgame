@@ -1,95 +1,113 @@
 #pragma once
 
-#include <memory>
+#include <nlohmann/json.hpp>
 
-#include <boost/serialization/map.hpp>
-#include <boost/serialization/shared_ptr.hpp>
-#include <boost/serialization/split_member.hpp>
-
-#include "behavior.hpp"
 #include "common.hpp"
-#include "containers.hpp"
+#include "config.hpp"
+#include "log.hpp"
 #include "nmoc.hpp"
-#include "serialization.hpp"
 #include "vector.hpp"
+
+namespace webgame {
 
 class env;
 
-class entity : public std::enable_shared_from_this<entity>
+//-----------------------------------------------------------------------------
+// ENTITY
+
+class WEBGAME_API entity
 {
-private:
-    // For access to private default constructor
-    template<class T>
-    friend T deserialize(std::string const & s);
+    WEBGAME_NON_MOVABLE_OR_COPYABLE(entity);
 
-    friend class boost::serialization::access;
-
-    template<class Archive>
-    void serialize(Archive & ar, const unsigned int version)
-    {
-        //SERIALIZATION_LOG("entity");
-        ar & id_;
-        ar & pos_;
-        ar & dir_;
-        ar & type_;
-        ar & behaviors_;
-        ar & speed_;
-        ar & max_speed_;
-
-        boost::serialization::split_member(ar, *this, version);
-    }
-
-    template<class Archive>
-    void save(Archive & ar, const unsigned int version) const
-    {}
-
-    template<class Archive>
-    void load(Archive & ar, const unsigned int version)
-    {
-        init_behaviors();
-    }
-
-private:
+protected:
     id_t        id_;
-    vector      pos_;
-    vector      dir_;
     std::string type_;
-    behaviors_t behaviors_;
-    real        speed_;
-    real        max_speed_;
 
-#ifndef NDEBUG
-public:
-    entity(entity const&) = default;
-    bool operator==(entity const& other);
-    bool operator!=(entity const& other);
-#else
-private:
-    entity(entity const&) = delete;
-#endif /* !NDEBUG */
-
-private:
-    entity &operator=(entity const&) = delete;
-    entity &operator=(entity &&) = delete;
-
+protected:
     entity() = default;
+    entity(std::string const& type);
+    virtual ~entity();
 
 public:
-    entity(vector const& pos, vector const& dir, real speed, real max_speed, std::string const& type, behaviors_t && behaviors = behaviors_t());
-    entity(entity && other);
+    virtual bool           update(double d, env & env) = 0;
+    virtual nlohmann::json save() const;
+    virtual void           load(nlohmann::json const& j);
+    virtual void           build_state_order(nlohmann::json &j) const;
 
-private:
-    void init_behaviors();
+    id_t const&        id() const;
+    std::string const& type() const;
 
+#ifdef WEBGAME_TESTS
 public:
-    bool                update(real d, env & env);
-    void                treatbehaviors(real d, env & env);
-    void                set_dir(vector const& vec);
-    void                set_speed(real speed);
-    id_t const&         id() const;
-    vector const&       pos() const;
-    vector const&       dir() const;
-    std::string const&  type() const;
-    real const&         speed() const;
-    real const&         max_speed() const;
+    virtual bool operator==(entity const& other) const;
+    virtual bool operator!=(entity const& other) const;
+#endif /* WEBGAME_TESTS */
 };
+
+//-----------------------------------------------------------------------------
+// LOCATED ENTITY
+
+class WEBGAME_API located_entity : public entity
+{
+    WEBGAME_NON_MOVABLE_OR_COPYABLE(located_entity);
+
+protected:
+    vector pos_;
+
+protected:
+    located_entity() = default;
+    located_entity(std::string const& type, vector const& pos);
+
+public:
+    virtual nlohmann::json save() const override;
+    virtual void           load(nlohmann::json const& j) override;
+    virtual void           build_state_order(nlohmann::json &j) const override;
+
+    void          set_pos(vector const& pos);
+    vector const& pos() const;
+
+#ifdef WEBGAME_TESTS
+public:
+    virtual bool operator==(entity const& other) const override;
+    virtual bool operator!=(entity const& other) const override;
+#endif /* WEBGAME_TESTS */
+};
+
+//-----------------------------------------------------------------------------
+// MOBILE ENTITY
+
+class WEBGAME_API mobile_entity : public located_entity
+{
+    WEBGAME_NON_MOVABLE_OR_COPYABLE(mobile_entity);
+
+protected:
+    vector dir_;
+    double speed_;
+    double max_speed_;
+
+protected:
+    mobile_entity() = default;
+    mobile_entity(std::string const& type, vector const& pos, vector const& dir, double speed, double max_speed);
+
+public:
+    virtual bool           update(double d, env & env) override;
+    virtual nlohmann::json save() const override;
+    virtual void           load(nlohmann::json const& j) override;
+    virtual void           build_state_order(nlohmann::json &j) const override;
+
+    void set_dir(vector const& vec);
+    void set_speed(double speed);
+    void set_max_speed(double speed);
+
+    vector const& dir() const;
+    double const& speed() const;
+    double const& max_speed() const;
+
+#ifdef WEBGAME_TESTS
+public:
+    virtual bool operator==(entity const& other) const override;
+    virtual bool operator!=(entity const& other) const override;
+#endif /* WEBGAME_TESTS */
+};
+
+} // namespace webgame

@@ -3,61 +3,82 @@
 #include <future>
 #include <mutex>
 
-#include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
-
-#include <bredis/Connection.hpp>
-#include <bredis/Extract.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/steady_timer.hpp>
 
 #include "common.hpp"
+#include "config.hpp"
 #include "containers.hpp"
 #include "entities.hpp"
 #include "nmoc.hpp"
-#include "persistence.hpp"
 #include "time.hpp"
 
+namespace webgame {
+
+class persistence;
+class player;
 class vector;
 
-namespace asio = boost::asio;
-
-class server : public std::enable_shared_from_this<server>
+class WEBGAME_API server : public std::enable_shared_from_this<server>
 {
 private:
-    typedef std::chrono::duration<duration, std::ratio<1>> delta_duration;
-
+    typedef std::chrono::duration<double, std::ratio<1>> delta_duration;
 
 private:
-    connections                     conns_;
-    entities                        entities_;
-    unsigned int                    threads_;
-    asio::io_context                io_context_;
-    asio::ip::tcp::acceptor         acceptor_;
-    asio::ip::tcp::socket           new_client_socket_;
-    std::shared_ptr<persistence>    persistence_;
-    steady_clock::duration const    tick_duration_;
-    steady_clock::time_point        wake_time_;
-    std::recursive_mutex            server_mutex_;
-    std::shared_ptr<bool>           stop_;
-    std::vector<std::thread>        network_threads_;
-    std::future<void>               game_loop_status_;
+    connections                              conns_;
+    entities                                 entities_;
+    boost::asio::io_context&                 io_context_;
+    boost::asio::ip::tcp::endpoint           local_endpoint_;
+    boost::asio::ip::tcp::acceptor           acceptor_;
+    boost::asio::ip::tcp::socket             new_client_socket_;
+    std::shared_ptr<persistence>             persistence_;
+    steady_clock::duration                   tick_duration_;
+    steady_clock::time_point                 wake_time_;
+#ifndef NDEBUG
+    steady_clock::time_point                 start_time_;
+#endif /* !NDEBUG */
+#ifndef WEBGAME_MONOTHREAD
+    std::recursive_mutex                     server_mutex_;
+#endif /* !WEBGAME_MONOTHREAD */
+    std::shared_ptr<bool>                    stop_;
+    boost::asio::steady_timer                game_cycle_timer_;
 
-    NON_MOVABLE_OR_COPYABLE(server);
+    WEBGAME_NON_MOVABLE_OR_COPYABLE(server);
 
 public:
-    server(unsigned int port, unsigned int threads = 1);
+    server(boost::asio::io_context &io_context, unsigned int port, std::shared_ptr<persistence> const& persistence);
 
-    void    run();
-    void    shutdown();
+    template<class Rep = int, class Per = std::milli>
+    void start(std::chrono::duration<Rep, Per> const& tick_duration = std::chrono::duration<Rep, Per>(250))
+    {
+        *stop_ = false;
+
+        tick_duration_ = std::chrono::duration_cast<decltype(tick_duration_)>(tick_duration);
+
+        start_persistence();
+
+        start_game();
+
+        start_network();
+    }
+
+    void                            shutdown();
+    bool                            is_player_connected(std::string const& name);
+    void                            register_player(std::shared_ptr<player_conn> const& conn, std::shared_ptr<player> const& new_ent);
+    std::shared_ptr<persistence>    get_persistence();
+    connections const&              get_connections() const;
+    entities const&                 get_entities() const;
 
 private:
-    void    run_persistence();
-    void    run_game();
-    void    run_network();
-    void    run_input_read();
+    void    start_persistence();
+    void    start_game();
+    void    start_network();
 
-    void    game_loop();
-    void    game_cycle(unsigned int nb_ticks);
+    void    game_cycle(boost::system::error_code const& error, unsigned int nb_ticks);
 
     void    on_accept(const boost::system::error_code& error) noexcept;
     void    do_accept();
 };
+
+} // namespace webgame

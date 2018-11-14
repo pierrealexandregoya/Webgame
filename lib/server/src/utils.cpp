@@ -8,6 +8,8 @@
 
 namespace beast = boost::beast;
 
+namespace webgame {
+
 on_scope::on_scope(f_type fin, f_type fout)
     : fin_(fin)
     , fout_(fout)
@@ -38,12 +40,14 @@ scope_time::scope_time(std::string const& msg)
         msg_ += std::string(max_size - msg_.length(), ' ');
     msg_ += " TIME";
 
-    LOG(msg_, std::chrono::duration_cast<readable_duration>(in_time_ - start_time).count());
+    WEBGAME_LOG(msg_, std::chrono::duration_cast<readable_duration>(in_time_ - start_time).count());
 }
 
 scope_time::~scope_time()
 {
     steady_clock::time_point out_time = steady_clock::now();
 
-    LOG(msg_, std::chrono::duration_cast<readable_duration>(out_time - start_time).count() << " (+" << std::chrono::duration_cast<readable_duration>(out_time - in_time_).count() << ")");
+    WEBGAME_LOG(msg_, std::chrono::duration_cast<readable_duration>(out_time - start_time).count() << " (+" << std::chrono::duration_cast<readable_duration>(out_time - in_time_).count() << ")");
 }
+
+} // namespace webgame

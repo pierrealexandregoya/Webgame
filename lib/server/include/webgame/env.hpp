@@ -1,8 +1,11 @@
 #pragma once
 
+#include "config.hpp"
 #include "entities.hpp"
 
-class env
+namespace webgame {
+
+class WEBGAME_API env
 {
 private:
     entities entities_;
@@ -13,3 +16,5 @@ public:
 public:
     entities & others();
 };
+
+} // namespace webgame

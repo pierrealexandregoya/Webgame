@@ -1,10 +1,8 @@
 #pragma once
 
-// Program precision
-using real = float;
-
-// Delta precision
-using duration = double;
+namespace webgame {
 
 // Id type
 using id_t = unsigned int;
+
+} // namespace webgame

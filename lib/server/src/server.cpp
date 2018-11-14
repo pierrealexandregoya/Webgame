@@ -1,219 +1,219 @@
 #include "server.hpp"
 
 #include <cassert>
-
 #include <future>
 
-#include <boost/asio/connect.hpp>
 #include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/use_future.hpp>
+#include <boost/asio/connect.hpp>
 #include <boost/asio/streambuf.hpp>
+#include <boost/asio/use_future.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
-#include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
-#include <boost/variant/apply_visitor.hpp>
+#include <boost/property_tree/ptree.hpp>
 
 #include "behavior.hpp"
+#include "entities.hpp"
 #include "entity.hpp"
 #include "env.hpp"
-#include "json.hpp"
+#include "lock.hpp"
 #include "log.hpp"
-#include "redis_conn.hpp"
-#include "serialization.hpp"
+#include "npc.hpp"
+#include "persistence.hpp"
+#include "player.hpp"
+#include "player_conn.hpp"
+#include "protocol.hpp"
+#include "save_load.hpp"
+#include "stationnary_entity.hpp"
 #include "time.hpp"
 #include "utils.hpp"
 #include "vector.hpp"
-#include "ws_conn.hpp"
 
 using namespace std::literals::chrono_literals;
 
+namespace asio = boost::asio;
 namespace beast = boost::beast;
 
-server::server(unsigned int port, unsigned int threads)
-    : threads_(std::max<unsigned int>(1, threads))
-    , io_context_(threads_)
-    , acceptor_(io_context_, asio::ip::tcp::endpoint(asio::ip::tcp::v6(), port))
+namespace webgame {
+
+server::server(asio::io_context &io_context, unsigned int port, std::shared_ptr<persistence> const& persistence)
+    : io_context_(io_context)
+    , local_endpoint_(asio::ip::tcp::endpoint(asio::ip::tcp::v6(), port))
+    , acceptor_(io_context_)
     , new_client_socket_(io_context_)
-    , tick_duration_(std::chrono::duration_cast<std::remove_const_t<decltype(tick_duration_)>>(0.250s))
+    , persistence_(persistence)
     , stop_(new bool(false))
+    , game_cycle_timer_(io_context)
 {}
-
-void server::run()
-{
-    run_persistence();
-
-    run_game();
-
-    run_network();
-
-    run_input_read();
-
-    shutdown();
-}
 
 void server::shutdown()
 {
-    *stop_ = true;
-    LOG("SHUTDOWN", "Stopping game loop thread");
-    game_loop_status_.wait();
+    WEBGAME_LOCK(server_mutex_);
 
-    LOG("SHUTDOWN", "Cancelling server accept");
+    WEBGAME_LOG("SHUTDOWN", "Stopping game loop thread");
+    *stop_ = true;
+    game_cycle_timer_.cancel();
+
+    WEBGAME_LOG("SHUTDOWN", "Cancelling server accept");
     acceptor_.cancel();
+
     for (auto conn : conns_)
     {
-        LOG("SHUTDOWN", "Closing connection " << conn.second->addr_str);
-        conn.second->close();
+        WEBGAME_LOG("SHUTDOWN", "Closing connection " << conn->addr_str);
+        conn->close();
     }
+    conns_.clear();
 
-    LOG("SHUTDOWN", "Closing server socket");
+    entities_.clear();
+
+    WEBGAME_LOG("SHUTDOWN", "Closing server socket");
     acceptor_.close();
 
-    for (auto & t : network_threads_)
-    {
-        LOG("SHUTDOWN", "Joining network thread " << t.get_id());
-        t.join();
-    }
+    WEBGAME_LOG("SHUTDOWN", "Stopping persistence instance");
+    persistence_->stop();
 }
 
-void server::run_persistence()
+bool server::is_player_connected(std::string const& name)
 {
-    LOG("REDIS", "CONNECTING");
-    asio::ip::tcp::resolver resolver(io_context_);
-    auto res = resolver.resolve("localhost", "6379");
-    asio::ip::tcp::socket socket(io_context_);
-    asio::connect(socket, res.cbegin(), res.cend());
-    LOG("REDIS", "CONNECTED");
+    WEBGAME_LOCK(server_mutex_);
 
-    persistence_ = std::make_shared<redis_conn>(std::move(socket));
+    for (std::shared_ptr<player_conn> const& conn : conns_)
+        if (conn->current_state() > player_conn::authenticating
+            && conn->current_state() < player_conn::closing
+            && conn->player_name() == name)
+            return true;
+    return false;
+}
+
+void server::register_player(std::shared_ptr<player_conn> const& player_conn, std::shared_ptr<player> const& player_ent)
+{
+    WEBGAME_LOCK(server_mutex_);
+
+    player_conn->write(std::make_shared<std::string const>("{\"order\":\"state\",\"suborder\":\"game\",\"tick_duration\":"
+        + std::to_string(std::chrono::duration_cast<std::chrono::duration<float>>(tick_duration_).count()) + "}"));
+    player_conn->write(std::make_shared<std::string const>(json_state_player(player_ent)));
+
+    entities other_ents = entities_;
+    connections other_conns;
+    for (auto &other_conn : conns_)
+        if (other_conn != player_conn && other_conn->is_ready())
+        {
+            other_conns.emplace_back(other_conn);
+            //other_ents.add(other_conn->player_entity());
+        }
+
+    if (!other_ents.empty())
+    {
+        player_conn->write(std::make_shared<std::string const>(json_state_entities(other_ents)));
+
+        auto new_entity_json = std::make_shared<std::string const>(json_state_entities(entities({ player_ent })));
+        for (auto &other_conn : other_conns)
+            other_conn->write(new_entity_json);
+    }
+
+    entities_.add(player_ent);
+
+    WEBGAME_LOG("SERVER", "PLAYER REGISTERED");
+}
+
+std::shared_ptr<persistence> server::get_persistence()
+{
+    return persistence_;
+}
+
+connections const& server::get_connections() const
+{
+    return conns_;
+}
+
+entities const& server::get_entities() const
+{
+    return entities_;
+}
+
+void server::start_persistence()
+{
+    WEBGAME_LOG("STARTUP", "LOADING WORLD");
+    if (!persistence_->start())
+        throw std::runtime_error("server: could not start persistence instance");
 
     entities_ = persistence_->load_all_npes();
+    WEBGAME_LOG("STARTUP", "LOADED " << static_cast<entity_container<stationnary_entity>>(entities_).size() << " STATIONNARY ENTITIES");
+    WEBGAME_LOG("STARTUP", "LOADED " << static_cast<entity_container<npc>>(entities_).size() << " CHARACTER ENTITIES");
 }
 
-void server::run_game()
+void server::start_game()
 {
+    *stop_ = false;
     wake_time_ = std::chrono::ceil<std::chrono::seconds>(steady_clock::now());
+#ifndef NDEBUG
+    start_time_ = wake_time_;
+#endif /* !NDEBUG */
     assert(std::chrono::duration_cast<std::chrono::nanoseconds>(wake_time_.time_since_epoch()).count() % 1000000000 == 0);
 
-    game_loop_status_ = std::async(std::launch::async, std::bind(&server::game_loop, this));
+    game_cycle_timer_.expires_at(wake_time_);
+    game_cycle_timer_.async_wait(std::bind(&server::game_cycle, shared_from_this(), std::placeholders::_1, 0));
+
+    WEBGAME_LOG("STARTUP", "FIRST GAME CYCLE IN "
+        << std::chrono::duration_cast<std::chrono::duration<float>>(wake_time_ - std::chrono::steady_clock::now()).count()
+        << "s WITH TICK DURATION OF "
+        << std::chrono::duration_cast<std::chrono::duration<float>>(tick_duration_).count() << "s");
 }
 
-void server::run_network()
+void server::start_network()
 {
+    acceptor_.open(local_endpoint_.protocol());
+    acceptor_.set_option(boost::asio::socket_base::reuse_address(true));
+    acceptor_.bind(local_endpoint_);
+    acceptor_.listen();
+
+    new_client_socket_ = asio::ip::tcp::socket(io_context_);
+
     asio::post(acceptor_.get_executor(), std::bind(&server::do_accept, shared_from_this()));
 
-    network_threads_.reserve(threads_);
-    for (auto i = 0; i < threads_; ++i)
-        network_threads_.emplace_back([this, i] {
-        LOG("NETWORK", "THREAD #" << i + 1 << " STARTED");
-        try {
-            io_context_.run();
-        }
-        catch (...) {
-            assert(false);
-        }
-        assert(*stop_);
-        LOG("NETWORK", "THREAD #" << i + 1 << " STOPPED");
-    });
+    WEBGAME_LOG("STARTUP", "LISTENNING FOR PLAYER CONNECTION");
 }
 
-void show_help()
+void server::game_cycle(boost::system::error_code const& error, unsigned int nb_ticks)
 {
-    _MY_LOG("commands:" << std::endl
-        << "\thelp" << std::endl
-        << "\tinfo" << std::endl
-        << "\texit" << std::endl
-        << "\tio: set/unset io log: " << io_log << std::endl
-        << "\tdata: set/unset data log (no effect if io log is unset): " << data_log
-    );
-}
+    WEBGAME_LOCK(server_mutex_);
 
-void server::run_input_read()
-{
-    std::string input;
-    for (;;)
+    if (*stop_)
     {
-        std::cin >> input;
-        if (input == "info")
-        {
-            std::lock_guard<decltype(log_mutex)> lock(log_mutex);
-            LOG("INFO", "Connections: " << conns_.size());
-            LOG("INFO", "Entities: " << entities_.size());
-            LOG("INFO", "Threads: " << network_threads_.size() << " asio thread"
-                << (network_threads_.size() > 1 ? "s" : "") << " + user input thread + game loop thread");
-        }
-        else if (input == "help")
-            show_help();
-        else if (input == "data")
-            data_log = !data_log;
-        else if (input == "io")
-            io_log = !io_log;
-        else if (input == "exit")
-            break;
-        else
-        {
-            std::lock_guard<decltype(log_mutex)> lock(log_mutex);
-            _MY_LOG("Unknown command: " << input << std::endl);
-            show_help();
-        }
-    }
-}
-
-void server::game_loop()
-{
-    std::this_thread::sleep_until(wake_time_);
-
-    LOG("GAME LOOP", "STARTED");
-
-    while (!*stop_)
-    {
-        auto nb_ticks = 0;
-        while (wake_time_ < steady_clock::now())
-        {
-            wake_time_ += tick_duration_;
-            ++nb_ticks;
-        }
-        assert(nb_ticks >= 1);
-
-        if (nb_ticks > 1)
-            LOG("GAME LOOP", "RETARD OF " << nb_ticks - 1 << " TICK" << (nb_ticks - 1 > 1 ? "S" : ""));
-        std::this_thread::sleep_until(wake_time_);
-
-        game_cycle(nb_ticks);
+        WEBGAME_LOG("GAME LOOP", "STOPPED");
+        return;
     }
 
-    LOG("GAME LOOP", "STOPPED");
-}
-
-void server::game_cycle(unsigned int nb_ticks)
-{
-    std::lock_guard<decltype(server_mutex_)> l(server_mutex_);
-
-    duration delta = (std::chrono::duration_cast<delta_duration>(tick_duration_) * nb_ticks).count();
+    double delta = (std::chrono::duration_cast<delta_duration>(tick_duration_) * nb_ticks).count();
 
     // If a player got disconnected, we remove the corresponding connection and entity objects
+    std::list<decltype(conns_)::const_iterator> its_to_remove;
+    for (auto it = conns_.cbegin(); it != conns_.cend(); ++it)
+        if (/*(*it)->is_closed()*/(*it)->current_state() > player_conn::to_be_closed)
+            its_to_remove.push_back(it);
+
     std::list<id_t> ids_to_remove;
-    for (auto const& p : conns_)
-        if (p.second->is_closed())
-            ids_to_remove.push_back(p.first);
-
-    for (auto id : ids_to_remove)
+    for (auto it : its_to_remove)
     {
-        assert(entities_.at(id)->type() == "player");
-        LOG("GAME LOOP", "Removing id " << id << " from connections and entities");
+        if ((*it)->player_entity())
+        {
+            id_t id = (*it)->player_entity()->id();
 
-        if (conns_.erase(id) == 0)
-            LOG("GAME LOOP", "ERROR: No id in connections");
-        if (entities_.erase(id) == 0)
-            LOG("GAME LOOP", "ERROR: No id in entities");
+            ids_to_remove.push_back(id);
+
+            assert(entities_.count(id) == 1);
+            assert(entities_.at(id)->type() == "player");
+
+            WEBGAME_LOG("GAME LOOP", "Removing id " << id << " from entities");
+
+            entities_.erase(id);
+        }
+        WEBGAME_LOG("GAME LOOP", "Removing conn " << (*it)->addr_str << " from connections");
+        conns_.erase(it);
     }
-
-    // Check network state
-    assert(acceptor_.is_open());
-    assert(!io_context_.stopped());
 
     // Fixme: should have a helper in json.cpp
     // We build the remove message
-    std::shared_ptr<std::string const> remove_msg;
+    std::shared_ptr<std::string const> remove_entities_msg;
     if (!ids_to_remove.empty())
     {
         boost::property_tree::ptree root;
@@ -231,72 +231,110 @@ void server::game_cycle(unsigned int nb_ticks)
 
         std::stringstream ss;
         boost::property_tree::write_json(ss, root, false);
-        remove_msg = std::make_shared<std::string const>(std::move(ss.str()));
+        remove_entities_msg = std::make_shared<std::string const>(std::move(ss.str()));
     }
 
     // Apply all pending patches of all connections
     for (auto &c : conns_)
     {
-        auto id = c.second->player_entity()->id();
-        assert(entities_.count(id) == 1);
-        ws_conn::patch p;
-        while (c.second->pop_patch(p))
+        if (!c->is_ready())
+            continue;
+
+        while (c->has_patch())
         {
+            player_conn::patch p = c->pop_patch();;
+
             try {
                 if (p.what == "speed")
-                    entities_[id]->set_speed(any_cast<float>(p.value));
-                else if (p.what == "vel")
-                    entities_[id]->set_dir(any_cast<vector>(p.value));
-                else if (p.what == "targetPos")
-                    entities_[id]->set_dir(any_cast<vector>(p.value) - entities_[id]->pos());
+                    c->player_entity()->set_speed(any_cast<double>(p.value));
+                else if (p.what == "dir")
+                {
+                    c->player_entity()->set_dir(any_cast<vector>(p.value));
+                    c->player_entity()->stop();
+                }
+                else if (p.what == "target_pos")
+                    c->player_entity()->move_to(any_cast<vector>(p.value));
                 else
-                    LOG("GAME LOOP", "ERROR during patches application: unknown value: " << p.what);
+                    WEBGAME_LOG("GAME LOOP", "ERROR during patches application: unknown value: " << p.what);
             }
             catch (const bad_any_cast& e) {
-                LOG("GAME LOOP", "ERROR during patches application: " << e.what() << ". Conn: " << c.second->addr_str << ", entity: " << id << ", value name: " << p.what);
+                WEBGAME_LOG("GAME LOOP", "ERROR during patches application: " << e.what() << ". Conn: " << c->addr_str << ", entity: " << c->player_entity()->id() << ", value name: " << p.what);
             }
         }
     }
 
     // Update all entities with delta
     entities changed_entities;
-    for (auto &p : entities_)
+    entities alive_entities;
+    for (auto &ent : entities_)
     {
-        env env(entities_);
-        // Remove the entity from its own env so it doesn't see itself
-        env.others().erase(p.second->id());
-        if (p.second->update(delta, env))
-            changed_entities.insert(p);
+        std::shared_ptr<player> player_p = std::dynamic_pointer_cast<player>(ent.second);
+        if (player_p && !player_p->conn()->is_ready())
+            continue;
+
+        alive_entities.add(ent.second);
     }
 
-    // Save to redis
-    persistence_->save(entities_);
+    for (auto &ent : alive_entities)
+    {
+        env env(alive_entities);
+        // Remove the entity from its own env so it doesn't see itself
+        env.others().erase(ent.second->id());
+        if (ent.second->update(delta, env))
+            changed_entities.add(ent.second);
+    }
 
-    // Serialize all entities with changes
-    std::shared_ptr<std::string const> jsonentities;
-    if (!changed_entities.empty())
-        jsonentities = std::make_shared<std::string const>(json_state_entities(changed_entities));
+    // Save to redis, fixme: maybe just save alive entities
+    persistence_->async_save(entities_, [] {
+        //LOG("SERVER", "ENTITIES SAVED");
+    });
 
     // We broadcast all changes to all players
-    if (remove_msg)
+    if (remove_entities_msg)
         for (auto &c : server::conns_)
-        {
-            if (c.second->current_state() != ws_conn::reading
-                && c.second->current_state() != ws_conn::writing)
-                continue;
+            if (c->is_ready())
+                c->write(remove_entities_msg);
 
-            c.second->write(remove_msg);
-        }
+    if (!changed_entities.empty())
+    {
+        std::shared_ptr<std::string const> state_entities_msg = std::make_shared<std::string const>(json_state_entities(changed_entities));
 
-    if (jsonentities)
         for (auto &c : server::conns_)
-        {
-            if (c.second->current_state() != ws_conn::reading
-                && c.second->current_state() != ws_conn::writing)
-                continue;
+            if (c->is_ready())
+            {
+                entities entities_for_player = changed_entities;
+                if (entities_for_player.erase(c->player_entity()->id()) == 0)
+                    c->write(state_entities_msg);
+                else if (!entities_for_player.empty())
+                    c->write(std::make_shared<std::string const>(json_state_entities(entities_for_player)));
+            }
+    }
 
-            c.second->write(jsonentities);
-        }
+    for (auto &c : server::conns_)
+        if (c->is_ready())
+            c->write(std::make_shared<std::string>(json_state_player(c->player_entity())));
+
+    if (*stop_)
+    {
+        WEBGAME_LOG("GAME LOOP", "STOPPED");
+        return;
+    }
+
+    // Prepare next call
+    nb_ticks = 0;
+    while (wake_time_ < steady_clock::now())
+    {
+        wake_time_ += tick_duration_;
+        ++nb_ticks;
+    }
+    assert(nb_ticks >= 1);
+
+    if (nb_ticks > 1)
+        WEBGAME_LOG("GAME LOOP", "RETARD OF " << nb_ticks - 1 << " TICK" << (nb_ticks - 1 > 1 ? "S" : ""));
+
+    //LOG("GAME LOOP", "NEXT CYCLE AT " << std::chrono::duration_cast<std::chrono::duration<float>>(wake_time_ - start_time_).count());
+    game_cycle_timer_.expires_at(wake_time_);
+    game_cycle_timer_.async_wait(std::bind(&server::game_cycle, shared_from_this(), std::placeholders::_1, nb_ticks));
 }
 
 void server::on_accept(const boost::system::error_code& ec) noexcept
@@ -304,63 +342,36 @@ void server::on_accept(const boost::system::error_code& ec) noexcept
     if (ec)
     {
         if (ec.value() == 995)
-            LOG("SERVER ACCEPT", "INFO: operation aborted");
+            WEBGAME_LOG("SERVER ACCEPT", "INFO: operation aborted");
         else
-            LOG("SERVER ACCEPT", "ERROR " << ec.value() << ": " << ec.message());
+            WEBGAME_LOG("SERVER ACCEPT", "ERROR " << ec.value() << ": " << ec.message());
+
+        boost::system::error_code ec;
+        new_client_socket_.close(ec);
 
         if (!*stop_)
             do_accept();
         return;
     }
 
-    // MESSY
-    std::shared_ptr<entity> new_ent;
-    std::shared_ptr<ws_conn> new_conn;
-    connections conns_copy;
-    std::string json_entities;
-    {
-        std::lock_guard<decltype(server_mutex_)> l(server_mutex_);
+    WEBGAME_LOCK(server_mutex_);
 
-        try {
-            LOG("SERVER ACCEPT", "New connection from: " << new_client_socket_.remote_endpoint().address().to_string() + ":" + std::to_string(new_client_socket_.remote_endpoint().port()));
-
-            new_ent = entities_.add({ 0.f, 0.f }, { 0.f, 0.f }, 1.f, 1.f, "player");
-
-            new_conn = std::make_shared<ws_conn>(std::move(new_client_socket_), new_ent);
-
-            assert(conns_.insert({ new_ent->id(), new_conn }).second);
-
-            new_conn->start();
-
-            conns_copy = conns_;
-            json_entities = json_state_entities(entities_);
-        }
-        catch (...) {
-            LOG("SERVER ACCEPT", "ERROR while creating new player entity, new connection or while starting it");
-
-            if (new_ent)
-            {
-                if (new_conn)
-                {
-                    conns_.erase(new_ent->id());
-                    new_conn.reset();
-                }
-                entities_.erase(new_ent->id());
-                new_ent.reset();
-            }
-
-        }
+    // socket can be invalid even if there is no error, calling remote_endpoint() is a way to test it
+    try {
+        std::string const endpoint = new_client_socket_.remote_endpoint().address().to_string() + ":" + std::to_string(new_client_socket_.remote_endpoint().port());
+        WEBGAME_LOG("SERVER ACCEPT", "New connection from: " << endpoint);
+    }
+    catch (...) {
+        WEBGAME_LOG("SERVER ACCEPT", "ERROR while creating new player entity, new connection or while starting it");
+        boost::system::error_code ec;
+        new_client_socket_.close(ec);
     }
 
-    if (new_ent && new_conn)
-    {
-        new_conn->write(std::make_shared<std::string const>(std::move(json_entities)));
-        entities tmp;
-        tmp.add(new_ent);
-        auto new_entity_json = std::make_shared<std::string const>(json_state_entities(tmp));
-        for (auto &c : conns_copy)
-            c.second->write(new_entity_json);
-    }
+    auto new_conn = std::make_shared<player_conn>(std::move(new_client_socket_), shared_from_this());
+
+    conns_.emplace_back(new_conn);
+
+    new_conn->start();
 
     do_accept();
 }
@@ -369,3 +380,5 @@ void server::do_accept()
 {
     acceptor_.async_accept(new_client_socket_, std::bind(&server::on_accept, shared_from_this(), std::placeholders::_1));
 }
+
+} // namespace webgame
