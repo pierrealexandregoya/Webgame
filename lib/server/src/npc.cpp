@@ -15,9 +15,10 @@ bool npc::update(double d, env & env)
 {
     vector prev_pos = pos_;
     vector prev_dir = dir_;
+    double prev_speed = speed_;
 
     treatbehaviors(d, env);
-    bool has_changed = prev_pos != pos_ || prev_dir != dir_;
+    bool has_changed = prev_pos != pos_ || prev_dir != dir_ || prev_speed != speed_;
 
     return mobile_entity::update(d, env) || has_changed;
 }

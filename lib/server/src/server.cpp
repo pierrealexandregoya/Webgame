@@ -112,7 +112,7 @@ void server::register_player(std::shared_ptr<player_conn> const& player_conn, st
 
     entities_.add(player_ent);
 
-    WEBGAME_LOG("SERVER", "PLAYER REGISTERED");
+    WEBGAME_LOG("SERVER", "PLAYER " << player_conn->player_name() << " REGISTERED");
 }
 
 std::shared_ptr<persistence> server::get_persistence()

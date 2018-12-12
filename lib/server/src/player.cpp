@@ -76,12 +76,12 @@ bool player::is_moving_to() const
     return moving_to_;
 }
 
-void player::set_conn(std::shared_ptr<player_conn> const& conn)
+void player::set_conn(player_conn *conn)
 {
     player_conn_ = conn;
 }
 
-std::shared_ptr<player_conn> player::conn()
+player_conn *player::conn()
 {
     return player_conn_;
 }

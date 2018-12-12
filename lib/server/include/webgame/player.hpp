@@ -13,7 +13,7 @@ class WEBGAME_API player : public mobile_entity
     WEBGAME_NON_MOVABLE_OR_COPYABLE(player);
 
 private:
-    std::shared_ptr<player_conn> player_conn_;
+    player_conn *player_conn_;
     vector target_pos_;
     bool moving_to_;
 
@@ -29,8 +29,8 @@ public:
     void stop();
     bool is_moving_to() const;
 
-    void                         set_conn(std::shared_ptr<player_conn> const& conn);
-    std::shared_ptr<player_conn> conn();
+    void         set_conn(player_conn *conn);
+    player_conn *conn();
 
 #ifdef WEBGAME_TESTS
 public:

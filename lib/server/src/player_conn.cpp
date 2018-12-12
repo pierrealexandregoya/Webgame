@@ -2,8 +2,8 @@
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
-#include <boost/property_tree/json_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
+
+#include <nlohmann/json.hpp>
 
 #include "any.hpp"
 #include "lock.hpp"
@@ -127,7 +127,7 @@ void player_conn::write_next()
 {
     WEBGAME_LOCK(handlers_mutex_);
 
-    if (/*state_ != reading || */to_write_.empty())
+    if (!(state_ == loading_player || state_ == reading) || to_write_.empty())
         return;
 
     socket_.async_write(asio::buffer(*to_write_.front()), asio::bind_executor(strand_, std::bind(&player_conn::on_write, shared_from_this(), std::placeholders::_1, std::placeholders::_2)));
@@ -160,8 +160,6 @@ void player_conn::on_read(boost::system::error_code const& ec, std::size_t const
 
     if (ec)
     {
-        assert(read_buffer_.size() == 0);
-
         if (socket_.is_open())
         {
             CONN_LOG("READ ERROR: " << ec.message() << ", code: " << ec.value());
@@ -184,7 +182,7 @@ void player_conn::on_read(boost::system::error_code const& ec, std::size_t const
     }
     else if (state_ == loading_player)
     {
-        CONN_LOG("READ: ERROR: NOT SUPPOSE TO RECEIVE DATA WHILE LOADING PLAYER ENTITY");
+        CONN_LOG("READ: ERROR: NOT SUPPOSED TO RECEIVE DATA WHILE LOADING PLAYER ENTITY");
         do_close(beast::websocket::close_code::abnormal);
         do_read();
         return;
@@ -216,6 +214,7 @@ void player_conn::on_write(beast::error_code const& ec, std::size_t const& bytes
             CONN_LOG("WRITE ERROR: operation aborted");
         else
             CONN_LOG("WRITE ERROR: " << ec.message());
+        return;
     }
 
     if (state_ == to_be_closed)
@@ -229,16 +228,6 @@ void player_conn::on_write(beast::error_code const& ec, std::size_t const& bytes
         return;
 
     state_ = reading;
-
-    if (ec)
-    {
-        // fixme: in certains case (operation aborted), the socket is going to
-        // be closed at the same time. Either do not close here, or handle
-        // double close cases
-        //do_close(close_code_);
-        return;
-    }
-
 
     if (io_log && data_log)
         CONN_LOG("ON WRITE: " << bytes_transferred << " WRITTEN: " << std::endl << *msg);
@@ -259,10 +248,13 @@ void player_conn::on_close() noexcept
 
 void player_conn::on_player_load(std::shared_ptr<player> const& player_entity)
 {
+    if (state_ != loading_player)
+        return;
+
     CONN_LOG("PLAYER LOADED id=" << player_entity->id());
 
     player_entity_ = player_entity;
-    player_entity->set_conn(shared_from_this());
+    player_entity->set_conn(this);
 
     server_->register_player(shared_from_this(), player_entity);
 
@@ -313,20 +305,18 @@ void player_conn::do_close(beast::websocket::close_code const& code)
 
 void player_conn::interpret(std::string &&order_str)
 {
-    CONN_LOG("INTERPRETING " << order_str);
-    std::istringstream iss(std::move(order_str));
-    boost::property_tree::ptree ptree;
+    //CONN_LOG("INTERPRETING " << order_str);
 
     try {
-        boost::property_tree::read_json(iss, ptree);
+        nlohmann::json j = nlohmann::json::parse(std::move(order_str));
 
-        std::string order = ptree.get<std::string>("order");
+        std::string order = j["order"];
         if (state_ == authenticating)
         {
             if (order != "authentication")
                 throw std::runtime_error("AUTHENTICATION: NOT AN AUTHENTICATION ORDER");
 
-            std::string player_name = ptree.get<std::string>("player_name");
+            std::string player_name = j["player_name"];
             if (server_->is_player_connected(player_name))
                 throw std::runtime_error("AUTHENTICATION: PLAYER " + player_name + " ALREADY CONNECTED");
 
@@ -341,26 +331,22 @@ void player_conn::interpret(std::string &&order_str)
         }
         else if (order == "action")
         {
-            std::string suborder = ptree.get<std::string>("suborder");
+            std::string suborder = j["suborder"];
             WEBGAME_LOCK(patches_mutex_);
 
             if (suborder == "change_speed")
-                push_patch("speed", any(ptree.get<double>("speed")));
+                push_patch("speed", any(j["speed"].get<double>()));
             else if (suborder == "change_dir")
-                push_patch("dir", any(vector({ ptree.get<double>("dir.x"), ptree.get<double>("dir.y") })));
+                push_patch("dir", any(vector({ j["dir"]["x"].get<double>(), j["dir"]["y"].get<double>() })));
             else if (suborder == "move_to")
-                push_patch("target_pos", any(vector({ ptree.get<double>("target_pos.x"), ptree.get<double>("target_pos.y") })));
+                push_patch("target_pos", any(vector({ j["target_pos"]["x"].get<double>(), j["target_pos"]["y"].get<double>() })));
             else
                 throw std::runtime_error("UNKNOWN ACTION: " + suborder);
         }
         else
             throw std::runtime_error("UNKNOWN ORDER: " + order);
     }
-    catch (boost::property_tree::json_parser_error const& e) {
-        CONN_LOG("INTERPRET ERROR: JSON PARSER ERROR: " << e.what());
-        do_close(beast::websocket::close_code::abnormal);
-    }
-    catch (std::runtime_error const& e) {
+    catch (std::exception const& e) {
         CONN_LOG("INTERPRET ERROR: " << e.what());
         do_close(beast::websocket::close_code::abnormal);
     }

@@ -13,18 +13,18 @@
 namespace asio = boost::asio;
 namespace beast = boost::beast;
 
-#define CHECK_DO(title, e, action)\
+#define CHECK_DO(ws, e, msg, action)\
 if (e)\
 {\
-    WEBGAME_LOG(title, e.message());\
+    WEBGAME_LOG(std::to_string(ws.next_layer().local_endpoint().port()), e.message());\
     action;\
 }\
 else\
 {\
-    WEBGAME_LOG(title, "");\
+    WEBGAME_LOG(std::to_string(ws.next_layer().local_endpoint().port()), msg);\
 }
 
-#define CHECK(title, e) CHECK_DO(title, e, )
+#define CHECK(ws, e, message) CHECK_DO(ws, e, message, )
 
 // We want deterministic random
 std::mt19937 g(0);
@@ -60,7 +60,7 @@ int main(int ac, char **av)
 {
     if (ac != 5)
     {
-        std::cerr << "Usage: " << av[0] << "<host> <port> <number of threads> <number of players per thread>" << std::endl;
+        std::cerr << "Usage: " << av[0] << " <host> <port> <number of threads> <number of players per thread>" << std::endl;
         return 1;
     }
     nb_players_per_thread = std::atol(av[4]);
@@ -68,23 +68,29 @@ int main(int ac, char **av)
     port = av[2];
     host = av[1];
 
-    webgame::title_max_size = 30;
+    webgame::title_max_size = 5;
 
     try
     {
-        auto const ioc = std::make_shared<asio::io_context>();
+        asio::io_context ioc;
 
         // RESOLVE
-        auto const resolver = std::make_shared<asio::ip::tcp::resolver>(*ioc);
+        asio::ip::tcp::resolver resolver(ioc);
         beast::error_code ec1;
-        auto const results = std::make_shared<decltype(resolver)::element_type::results_type const>(resolver->resolve(host, port, ec1));
-        CHECK_DO("RESOLVE", ec1, return 1);
+        auto const results = resolver.resolve(host, port, ec1);
+        if (ec1)
+        {
+            std::cerr << "Could not resolve " << host << ":" << port << ": " << ec1.message() << std::endl;
+            return 1;
+        }
 
         // THREADS
         std::vector<std::thread> threads;
         threads.reserve(nb_threads);
         for (auto i = 0; i < nb_threads; ++i)
-            threads.emplace_back([&] {
+            threads.emplace_back([&results] {
+
+            asio::io_context ioc;
 
             try {
                 // WS SOCKETS
@@ -95,20 +101,29 @@ int main(int ac, char **av)
                 for (auto j = 0; j < nb_players_per_thread; ++j)
                 {
                     // NEW SOCKET
-                    auto ws = socket_type(*ioc);
+                    socket_type ws(ioc);
 
                     // CONNECT
-                    asio::connect(ws.next_layer(), results->begin(), results->end(), ec);
-                    CHECK_DO("CONNECTION", ec, continue);
+                    asio::connect(ws.next_layer(), results.begin(), results.end(), ec);
+                    CHECK_DO(ws, ec, "CONNECTED", continue);
 
                     // HANDSHAKE
                     ws.handshake(host, "/", ec);
-                    CHECK_DO("HANDSHAKE", ec, ws.close(beast::websocket::close_code::abnormal); continue);
+                    CHECK_DO(ws, ec, "HANDSHAKED", ws.close(beast::websocket::close_code::abnormal); continue);
 
                     // AUTHENTICATION
                     std::string const playername = gen_name();
-                    ws.write(asio::buffer("{\"order\":\"authentication\", \"playername\":\"" + playername + "\"}"), ec);
-                    CHECK_DO("AUTHENTICATION (" << playername << ")", ec, ws.close(beast::websocket::close_code::abnormal); continue);
+                    ws.write(asio::buffer("{\"order\":\"authentication\", \"player_name\":\"" + playername + "\"}"), ec);
+                    CHECK_DO(ws, ec, "AUTHENTICATED: " << playername, ws.close(beast::websocket::close_code::abnormal); continue);
+
+                    // READING STATE
+                    beast::multi_buffer buffer;
+                    ws.read(buffer, ec);
+                    CHECK_DO(ws, ec, "FIRST READ", ws.close(beast::websocket::close_code::abnormal, ec); continue);
+
+                    // SETTING SPEED
+                    ws.write(asio::buffer("{\"order\":\"action\", \"suborder\":\"change_speed\", \"speed\":0.1}"), ec);
+                    CHECK_DO(ws, ec, "SPEED CHANGED", ws.close(beast::websocket::close_code::abnormal); continue);
 
                     sockets.push_back(std::move(ws));
                 }
@@ -121,7 +136,7 @@ int main(int ac, char **av)
                 {
                     // TIME
                     auto new_now = std::chrono::steady_clock::now();
-                    double d = std::chrono::duration_cast<std::chrono::duration<double>>(new_now - now).count() / 1000000000.;
+                    double d = std::chrono::duration_cast<std::chrono::duration<double>>(new_now - now).count();
                     now = new_now;
 
                     // STOP AND CLOSE ALL SOCKETS OF THIS THREAD AFTER 20 SECS
@@ -143,9 +158,11 @@ int main(int ac, char **av)
                     {
                         for (auto &ws : sockets)
                         {
-                            std::string text = "{\"order\": \"state\", \"suborder\": \"player\", \"speed\":0.1, \"vel\": {\"x\": " + std::to_string(dis(g)) + ", \"y\": " + std::to_string(dis(g)) + "}}";
+                            std::string text = "{\"order\": \"action\", \"suborder\": \"change_dir\", \"dir\": {\"x\": " + std::to_string(dis(g)) + ", \"y\": " + std::to_string(dis(g)) + "}}";
+                            WEBGAME_LOCK(webgame::log_mutex);
+                            CHECK(ws, ec, "WRITING");
                             ws.write(asio::buffer(text), ec);
-                            CHECK_DO("WRITE", ec, ws.close(beast::websocket::close_code::abnormal, ec); continue);
+                            CHECK_DO(ws, ec, "DIRECTION CHANGED", ws.close(beast::websocket::close_code::abnormal, ec); continue);
                         }
                         write_time = 0.f;
                     }
@@ -154,16 +171,20 @@ int main(int ac, char **av)
                     for (auto &ws : sockets)
                     {
                         beast::multi_buffer buffer;
+                        WEBGAME_LOCK(webgame::log_mutex);
+                        CHECK(ws, ec, "READING");
                         ws.read(buffer, ec);
-                        CHECK_DO("READ", ec, ws.close(beast::websocket::close_code::abnormal, ec); continue);
+                        CHECK_DO(ws, ec, "READ " << boost::beast::buffers_to_string(buffer.data()), ws.close(beast::websocket::close_code::abnormal, ec); continue);
                     }
                 }
 
                 // CLOSE
                 for (auto &ws : sockets)
                 {
+                    WEBGAME_LOCK(webgame::log_mutex);
+                    CHECK(ws, ec, "CLOSING");
                     ws.close(beast::websocket::close_code::normal, ec);
-                    CHECK("CLOSE", ec);
+                    WEBGAME_LOG("", "CLOSED");
                 }
             }
             catch (...) {
