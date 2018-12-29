@@ -17,6 +17,15 @@
 # endif /* _MSVC_LANG etc. */
 #endif /* !_HAS_CXX17 */
 
+// Test C++20 (fixme: proper macro)
+#ifndef _HAS_CXX20
+# if __cplusplus > 201703L
+#  define _HAS_CXX20 1
+# else /* __cplusplus > 201703L */
+#  define _HAS_CXX20 0
+# endif /* __cplusplus > 201703L */
+#endif /* !HAS_CXX20 */
+
 #if defined(_WIN32)
 # define WEBGAME_SYSTEM_WINDOWS
 #elif defined(__APPLE__) && defined(__MACH__)

@@ -36,10 +36,10 @@ std::vector<std::string> const player_conn::state_str = {
 
 #define CONN_LOG(to_log) WEBGAME_LOG(addr_str, to_log)
 
-player_conn::patch::patch(std::string &&w, any &&v)
-    : what(std::move(w))
-    , value(std::move(v))
-{}
+//player_conn::patch::patch(std::string &&w, any &&v)
+//    : what(std::move(w))
+//    , value(std::move(v))
+//{}
 
 player_conn::player_conn(asio::ip::tcp::socket &&socket, boost::asio::io_context &ioc, std::shared_ptr<server> const& server)
     : addr_str(socket.remote_endpoint().address().to_string() + ":" + std::to_string(socket.remote_endpoint().port()))
@@ -83,21 +83,21 @@ void player_conn::close()
     state_ = state::closed;
 }
 
-player_conn::patch player_conn::pop_patch()
-{
-    WEBGAME_LOCK(patches_mutex_);
-
-    patch p = std::move(patches_.front());
-    patches_.pop();
-    return p;
-}
-
-bool player_conn::has_patch() const
-{
-    WEBGAME_LOCK(patches_mutex_);
-
-    return !patches_.empty();
-}
+//player_conn::patch player_conn::pop_patch()
+//{
+//    WEBGAME_LOCK(patches_mutex_);
+//
+//    patch p = std::move(patches_.front());
+//    patches_.pop();
+//    return p;
+//}
+//
+//bool player_conn::has_patch() const
+//{
+//    WEBGAME_LOCK(patches_mutex_);
+//
+//    return !patches_.empty();
+//}
 
 bool player_conn::is_closed() const
 {
@@ -109,9 +109,19 @@ std::shared_ptr<player> const& player_conn::player_entity() const
     return player_entity_;
 }
 
+void player_conn::set_player_entity(std::shared_ptr<player> const& entity)
+{
+    player_entity_ = entity;
+}
+
 player_conn::state player_conn::current_state() const
 {
     return state_;
+}
+
+void player_conn::set_state(player_conn::state st)
+{
+    state_ = st;
 }
 
 bool player_conn::is_ready() const
@@ -257,7 +267,7 @@ void player_conn::on_player_load(std::shared_ptr<player> const& player_entity)
     player_entity_ = player_entity;
     player_entity->set_conn(this);
 
-    server_->register_player(shared_from_this(), player_entity);
+    //server_->register_player(shared_from_this(), player_entity);
 
     state_ = reading;
 }
@@ -327,22 +337,24 @@ void player_conn::interpret(std::string &&order_str)
             player_name_ = player_name;
 
             CONN_LOG("LOADING PLAYER " << player_name_);
-            server_->get_persistence()->async_load_player(player_name_, std::bind(&player_conn::on_player_load, shared_from_this(), std::placeholders::_1));
+            //server_->get_persistence()->async_load_player(player_name_, std::bind(&player_conn::on_player_load, shared_from_this(), std::placeholders::_1));
+            server_->async_load_player(shared_from_this(), player_name_, std::bind(&player_conn::on_player_load, shared_from_this(), std::placeholders::_1));
             state_ = loading_player;
         }
         else if (order == "action")
         {
-            std::string suborder = j["suborder"];
-            WEBGAME_LOCK(patches_mutex_);
+            //std::string suborder = j["suborder"];
+            //WEBGAME_LOCK(patches_mutex_);
 
-            if (suborder == "change_speed")
-                push_patch("speed", any(j["speed"].get<double>()));
-            else if (suborder == "change_dir")
-                push_patch("dir", any(vector({ j["dir"]["x"].get<double>(), j["dir"]["y"].get<double>() })));
-            else if (suborder == "move_to")
-                push_patch("target_pos", any(vector({ j["target_pos"]["x"].get<double>(), j["target_pos"]["y"].get<double>() })));
-            else
-                throw std::runtime_error("UNKNOWN ACTION: " + suborder);
+            player_entity_->interpretAction(j);
+            //if (suborder == "change_speed")
+            //    push_patch("speed", any(j["speed"].get<double>()));
+            //else if (suborder == "change_dir")
+            //    push_patch("dir", any(vector({ j["dir"]["x"].get<double>(), j["dir"]["y"].get<double>() })));
+            //else if (suborder == "move_to")
+            //    push_patch("target_pos", any(vector({ j["target_pos"]["x"].get<double>(), j["target_pos"]["y"].get<double>() })));
+            //else
+            //    throw std::runtime_error("UNKNOWN ACTION: " + suborder);
         }
         else
             throw std::runtime_error("UNKNOWN ORDER: " + order);
@@ -353,18 +365,18 @@ void player_conn::interpret(std::string &&order_str)
     }
 }
 
-void player_conn::push_patch(std::string && what, any && value)
-{
-    WEBGAME_LOCK(patches_mutex_);
-
-    push_patch(patch(std::move(what), std::move(value)));
-}
-
-void player_conn::push_patch(patch && p)
-{
-    WEBGAME_LOCK(patches_mutex_);
-
-    patches_.emplace(std::move(p));
-}
+//void player_conn::push_patch(std::string && what, any && value)
+//{
+//    WEBGAME_LOCK(patches_mutex_);
+//
+//    push_patch(patch(std::move(what), std::move(value)));
+//}
+//
+//void player_conn::push_patch(patch && p)
+//{
+//    WEBGAME_LOCK(patches_mutex_);
+//
+//    patches_.emplace(std::move(p));
+//}
 
 } // namespace webgame

@@ -14,23 +14,43 @@ class WEBGAME_API player : public mobile_entity
 
 private:
     player_conn *player_conn_;
+
+public:
+    player() = default;
+
+public:
+    player(std::string const& player_type);
+
+public:
+    virtual void interpretAction(nlohmann::json const& j) = 0;
+
+    void         set_conn(player_conn *conn);
+    player_conn *conn();
+};
+
+class WEBGAME_API upview_player : public player
+{
+    WEBGAME_NON_MOVABLE_OR_COPYABLE(upview_player);
+
+private:
+
     vector target_pos_;
     bool moving_to_;
 
 public:
-    player();
+    upview_player();
 
 public:
     virtual bool           update(double d, env & env) override;
     virtual nlohmann::json save() const override;
     virtual void           load(nlohmann::json const& j) override;
+    virtual void           interpretAction(nlohmann::json const& j) override;
 
     void move_to(vector const& target_pos);
     void stop();
     bool is_moving_to() const;
 
-    void         set_conn(player_conn *conn);
-    player_conn *conn();
+
 
 #ifdef WEBGAME_TESTS
 public:
@@ -40,3 +60,4 @@ public:
 };
 
 } // namespace webgame
+

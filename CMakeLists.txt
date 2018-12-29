@@ -52,7 +52,6 @@ endif()
 
 set(WEBGAME_SRC
     ${INCDIR}/webgame/any.hpp
-    ${INCDIR}/webgame/application.hpp
     ${INCDIR}/webgame/behavior.hpp
     ${INCDIR}/webgame/common.hpp
     ${INCDIR}/webgame/config.hpp
@@ -80,7 +79,6 @@ set(WEBGAME_SRC
     ${INCDIR}/webgame/utils.hpp
     ${INCDIR}/webgame/vector.hpp
 
-    ${SRCDIR}/application.cpp
     ${SRCDIR}/behavior.cpp
     ${SRCDIR}/entities.cpp
     ${SRCDIR}/entity.cpp

@@ -35,7 +35,7 @@ namespace beast = boost::beast;
 
 namespace webgame {
 
-server::server(asio::io_context &io_context, unsigned int port, std::shared_ptr<persistence> const& persistence)
+server::server(asio::io_context &io_context, unsigned int port, std::shared_ptr<persistence> const& persistence, std::string const& game_name, std::function<std::shared_ptr<player>(entities &ents)> &&init_player)
     : io_context_(io_context)
     , local_endpoint_(asio::ip::tcp::endpoint(asio::ip::tcp::v6(), port))
     , acceptor_(io_context_)
@@ -43,6 +43,8 @@ server::server(asio::io_context &io_context, unsigned int port, std::shared_ptr<
     , persistence_(persistence)
     , stop_(new bool(false))
     , game_cycle_timer_(io_context)
+    , init_player_(std::move(init_player))
+    , game_name_(game_name)
 {}
 
 void server::shutdown()
@@ -84,32 +86,66 @@ bool server::is_player_connected(std::string const& name)
     return false;
 }
 
+void server::async_load_player(std::shared_ptr<player_conn> const& conn, std::string const& name, std::function<load_player_handler> &&handler)
+{
+    auto this_p = shared_from_this();
+    auto handler_p = std::make_shared<std::function<load_player_handler>>(std::move(handler));
+
+    persistence_->async_check_player(name, [this_p, conn, name, handler_p](bool success, id_t id) {
+        if (!success)
+        {
+            WEBGAME_LOCK(this_p->server_mutex_);
+            std::shared_ptr<player> player = this_p->init_player_(this_p->entities_);
+            this_p->persistence_->async_add_player(name, player, [this_p, conn, handler_p, player] {
+                //(*handler_p)(player);
+                this_p->register_player(conn, player);
+            });
+        }
+        else
+        {
+            this_p->persistence_->async_get_player(id, [this_p, conn, name, handler_p](bool success, std::shared_ptr<player> const& player) {
+                if (!success)
+                {
+                    WEBGAME_LOG("SERVER", "ERROR: player name " << name << " exists but not its datas. Closing connection...");
+                    conn->close();
+                }
+                else
+                {
+                    //(*handler_p)(player);
+                    this_p->register_player(conn, player);
+                }
+            });
+        }
+    });
+}
+
 void server::register_player(std::shared_ptr<player_conn> const& player_conn, std::shared_ptr<player> const& player_ent)
 {
     WEBGAME_LOCK(server_mutex_);
 
+    player_conn->set_player_entity(player_ent);
+    player_ent->set_conn(&(*player_conn));
+
     player_conn->write(std::make_shared<std::string const>("{\"order\":\"state\",\"suborder\":\"game\",\"tick_duration\":"
-        + std::to_string(std::chrono::duration_cast<std::chrono::duration<float>>(tick_duration_).count()) + "}"));
+        + std::to_string(std::chrono::duration_cast<std::chrono::duration<float>>(tick_duration_).count())
+		+ ",\"game_name\":\"" + game_name_ +"\""+ "}"));
     player_conn->write(std::make_shared<std::string const>(json_state_player(player_ent)));
 
-    entities other_ents = entities_;
+    player_conn->write(std::make_shared<std::string const>(json_state_entities(entities_)));
+
     connections other_conns;
     for (auto &other_conn : conns_)
         if (other_conn != player_conn && other_conn->is_ready())
-        {
             other_conns.emplace_back(other_conn);
-            //other_ents.add(other_conn->player_entity());
-        }
 
-    if (!other_ents.empty())
+    if (!other_conns.empty())
     {
-        player_conn->write(std::make_shared<std::string const>(json_state_entities(other_ents)));
-
         auto new_entity_json = std::make_shared<std::string const>(json_state_entities(entities({ player_ent })));
         for (auto &other_conn : other_conns)
             other_conn->write(new_entity_json);
     }
 
+    //player_conn->set_state(player_conn::reading);
     entities_.add(player_ent);
 
     WEBGAME_LOG("SERVER", "PLAYER " << player_conn->player_name() << " REGISTERED");
@@ -201,7 +237,7 @@ void server::game_cycle(boost::system::error_code const& error, unsigned int nb_
             ids_to_remove.push_back(id);
 
             assert(entities_.count(id) == 1);
-            assert(entities_.at(id)->type() == "player");
+            //assert(entities_.at(id)->type() == "player");
 
             WEBGAME_LOG("GAME LOOP", "Removing id " << id << " from entities");
 
@@ -234,37 +270,35 @@ void server::game_cycle(boost::system::error_code const& error, unsigned int nb_
         remove_entities_msg = std::make_shared<std::string const>(std::move(ss.str()));
     }
 
-    // Apply all pending patches of all connections
-    for (auto &c : conns_)
-    {
-        if (!c->is_ready())
-            continue;
+    //// Apply all pending patches of all connections
+    //for (auto &c : conns_)
+    //{
+    //    if (!c->is_ready())
+    //        continue;
 
-        while (c->has_patch())
-        {
-            player_conn::patch p = c->pop_patch();;
+    //    while (c->has_patch())
+    //    {
+    //        player_conn::patch p = c->pop_patch();;
 
-            try {
-                if (p.what == "speed")
-                    c->player_entity()->set_speed(any_cast<double>(p.value));
-                else if (p.what == "dir")
-                {
-                    c->player_entity()->set_dir(any_cast<vector>(p.value));
-                    c->player_entity()->stop();
-                }
-                else if (p.what == "target_pos")
-                    c->player_entity()->move_to(any_cast<vector>(p.value));
-                else
-                    WEBGAME_LOG("GAME LOOP", "ERROR during patches application: unknown value: " << p.what);
-            }
-            catch (const bad_any_cast& e) {
-                WEBGAME_LOG("GAME LOOP", "ERROR during patches application: " << e.what() << ". Conn: " << c->addr_str << ", entity: " << c->player_entity()->id() << ", value name: " << p.what);
-            }
-        }
-    }
+    //        try {
+    //            if (p.what == "speed")
+    //                c->player_entity()->set_speed(any_cast<double>(p.value));
+    //            else if (p.what == "dir")
+    //            {
+    //                c->player_entity()->set_dir(any_cast<vector>(p.value));
+    //                c->player_entity()->stop();
+    //            }
+    //            else if (p.what == "target_pos")
+    //                c->player_entity()->move_to(any_cast<vector>(p.value));
+    //            else
+    //                WEBGAME_LOG("GAME LOOP", "ERROR during patches application: unknown value: " << p.what);
+    //        }
+    //        catch (const bad_any_cast& e) {
+    //            WEBGAME_LOG("GAME LOOP", "ERROR during patches application: " << e.what() << ". Conn: " << c->addr_str << ", entity: " << c->player_entity()->id() << ", value name: " << p.what);
+    //        }
+    //    }
+    //}
 
-    // Update all entities with delta
-    entities changed_entities;
     entities alive_entities;
     for (auto &ent : entities_)
     {
@@ -275,6 +309,7 @@ void server::game_cycle(boost::system::error_code const& error, unsigned int nb_
         alive_entities.add(ent.second);
     }
 
+    entities changed_entities;
     for (auto &ent : alive_entities)
     {
         env env(alive_entities);

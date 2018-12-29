@@ -32,7 +32,7 @@ TEST(serialization, npc_all_behaviors)
 
 TEST(serialization, player)
 {
-    std::shared_ptr<webgame::player> orig_ent = std::make_shared<webgame::player>();
+    std::shared_ptr<webgame::upview_player> orig_ent = std::make_shared<webgame::upview_player>();
 
     orig_ent->move_to({ 10, 10 });
     webgame::entities ents;
@@ -87,7 +87,7 @@ TEST(serialization, protocol)
     ASSERT_FALSE(j1.count("max_speed"));
 
     nlohmann::json j2;
-    webgame::player().build_state_order(j2);
+    webgame::upview_player().build_state_order(j2);
     ASSERT_TRUE(j2.is_object());
 
     nlohmann::json j3;

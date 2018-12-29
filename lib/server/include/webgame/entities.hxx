@@ -1,3 +1,5 @@
+#include "log.hpp"
+
 namespace webgame {
 
 template<class EntityType>
@@ -11,6 +13,8 @@ template<class EntityType>
 std::shared_ptr<EntityType> const& entity_container<EntityType>::add(std::shared_ptr<EntityType> const& ent_ptr)
 {
     auto ret = this->insert(std::make_pair(ent_ptr->id(), ent_ptr));
+    if (!ret.second)
+        WEBGAME_LOG("==DEBUG==", ent_ptr->type());
     assert(ret.second);
     return ret.first->second;
 }

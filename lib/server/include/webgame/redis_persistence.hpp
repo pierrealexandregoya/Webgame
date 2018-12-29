@@ -34,7 +34,9 @@ public:
     virtual void                    stop() override;
     virtual void                    async_save(entities const& ents, std::function<save_handler> &&handler) override;
     virtual entities                load_all_npes() override;
-    virtual void                    async_load_player(std::string const& name, std::function<load_player_handler> &&handler) override;
+    virtual void					async_check_player(std::string const& name, std::function<check_player_handler> &&handler) override;
+    virtual void                    async_get_player(id_t id, std::function<get_player_handler> &&handler) override;
+    virtual void					async_add_player(std::string const& name, std::shared_ptr<player> const& player, std::function<add_player_handler> &&handler) override;
     virtual void                    remove_all() override;
 };
 

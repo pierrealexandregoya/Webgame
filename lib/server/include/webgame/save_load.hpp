@@ -46,7 +46,7 @@ std::shared_ptr<base> load_##base(nlohmann::json const& j)\
     if (!j["type"].is_string())\
         throw std::runtime_error("load_"#base": \"type\" field is not a string");\
     if (base##_loaders().count(j["type"]) == 0)\
-        throw std::runtime_error("load_"#base": "#base" type not registered");\
+        throw std::runtime_error("load_"#base": \"" + std::string(j["type"]) + "\" type not registered");\
     return base##_loaders()[j["type"]](j);\
 }\
 std::map<std::string, std::function<std::shared_ptr<base>(nlohmann::json const& j)>> & base##_loaders()\

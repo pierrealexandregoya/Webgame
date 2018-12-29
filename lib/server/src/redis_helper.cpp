@@ -268,12 +268,21 @@ void redis_helper::command_result_str(bredis::single_command_t const& cmd, std::
 
 void redis_helper::check_extract_str(bredis::extracts::extraction_result_t const& extract, std::string const& expected_res)
 {
+    std::string err_str;
+    try {
+        err_str = boost::get<bredis::extracts::error_t>(extract).str;
+    }
+    catch (...) {}
+
+    if (!err_str.empty())
+        throw std::runtime_error("redis_helper: " + err_str);
+
     std::string res_str;
     try {
         res_str = boost::get<bredis::extracts::string_t>(extract).str;
     }
-    catch (...) {
-        throw std::runtime_error("redis_helper: result is not a string");
+    catch (std::exception const& e) {
+        throw std::runtime_error("redis_helper: " + std::string(e.what()));
     }
     if (res_str != expected_res)
         throw std::runtime_error("redis_helper: result is not \"" + expected_res + "\"");

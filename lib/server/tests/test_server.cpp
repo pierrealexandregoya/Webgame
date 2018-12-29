@@ -7,10 +7,12 @@
 #include <boost/beast/websocket.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
+
 #include <gtest/gtest.h>
 
 #include <webgame/npc.hpp>
 #include <webgame/persistence.hpp>
+#include <webgame/player.hpp>
 #include <webgame/protocol.hpp>
 #include <webgame/redis_persistence.hpp>
 #include <webgame/server.hpp>
@@ -162,6 +164,24 @@ state_player_order get_order(boost::property_tree::ptree const& ptree)
     return o;
 }
 
+template<>
+state_entities_order get_order(boost::property_tree::ptree const& ptree)
+{
+    assert(ptree.get<std::string>("order") == "state");
+    assert(ptree.get<std::string>("suborder") == "entities");
+
+    state_entities_order o;
+    for (auto ent_ptree : ptree.get_child("data"))
+    {
+        o.data.emplace_back(state_entities_order::entity_state());
+        o.data.back().id = ent_ptree.second.get<unsigned int>("id");
+        o.data.back().type = ent_ptree.second.get<std::string>("type");
+        o.data.back().pos = webgame::vector({ ent_ptree.second.get<double>("pos.x"), ent_ptree.second.get<double>("pos.y") });
+        o.data.back().dir = webgame::vector({ ent_ptree.second.get<double>("dir.x"), ent_ptree.second.get<double>("dir.y") });
+    }
+    return o;
+}
+
 struct test_bot
 {
 public:
@@ -265,14 +285,22 @@ public:
             ",\"target_pos\":" + order.target_pos.save().dump() + "}"));
     }
 
+    struct init_infos
+    {
+        state_game_order game;
+        state_player_order player;
+        state_entities_order entities;
+    };
 
-    std::pair<state_game_order, state_player_order> authenticate()
+    init_infos authenticate()
     {
         //write(get_ptree(authentication_order(name)));
         send_order(authentication_order(name));
-        auto game_state = get_order<state_game_order>(read_ptree());
-        auto player_state = get_order<state_player_order>(read_ptree());
-        return std::make_pair(game_state, player_state);
+        init_infos infos;
+        infos.game = get_order<state_game_order>(read_ptree());
+        infos.player = get_order<state_player_order>(read_ptree());
+        infos.entities = get_order<state_entities_order>(read_ptree());
+        return infos;
     }
 
     void change_speed(double new_speed)
@@ -305,7 +333,9 @@ TEST(server, run)
     RESETDB;
 
     std::shared_ptr<webgame::server> wg;
-    ASSERT_NO_THROW(wg = std::make_shared<webgame::server>(io_context, 2000, std::make_shared<webgame::redis_persistence>(io_context, "localhost", 6379, 1)));
+    ASSERT_NO_THROW(wg = std::make_shared<webgame::server>(io_context, 2000, std::make_shared<webgame::redis_persistence>(io_context, "localhost", 6379, 1), "none", [](webgame::entities &ents) {
+        return std::make_shared<webgame::upview_player>();
+        }));
     std::future<void> fut = std::async(std::launch::async, [wg, &io_context] {
         ASSERT_NO_THROW(wg->start());
         ASSERT_NO_THROW(io_context.run_for(std::chrono::duration_cast<std::chrono::steady_clock::duration>(dur(2))));
@@ -319,7 +349,9 @@ TEST(server, run)
 #define RUN \
 boost::asio::io_context io_context;\
 RESETDB;\
-std::shared_ptr<webgame::server> wg = std::make_shared<webgame::server>(io_context, 2000, std::make_shared<webgame::redis_persistence>(io_context, "localhost", 6379, 1));\
+std::shared_ptr<webgame::server> wg = std::make_shared<webgame::server>(io_context, 2000, std::make_shared<webgame::redis_persistence>(io_context, "localhost", 6379, 1), "none", [](webgame::entities &ents) {\
+    return std::make_shared<webgame::upview_player>();\
+    });\
 wg->start();\
 std::future<void> run_fut = std::async(std::launch::async, [wg, &io_context] {\
     try {\
@@ -411,7 +443,7 @@ TEST(server, authenticate_new_player)
     ASSERT_EQ(0, ptree.get<double>("pos.y"));
 
     ASSERT_TRUE(ptree.find("type") != ptree.not_found());
-    ASSERT_EQ("player", ptree.get<std::string>("type"));
+    ASSERT_EQ("upview_player", ptree.get<std::string>("type"));
 
     ASSERT_TRUE(ptree.find("speed") != ptree.not_found());
     ASSERT_EQ(0, ptree.get<double>("speed"));
@@ -426,12 +458,12 @@ TEST(server, player_move)
     PREPARE;
 
     BOT(bot1);
-    std::pair<state_game_order, state_player_order> init_infos = bot1.authenticate();
+    test_bot::init_infos infos = bot1.authenticate();
 
-    double tick_duration = init_infos.first.tick_duration;
+    double tick_duration = infos.game.tick_duration;
 
     double speed = 0.25;
-    webgame::vector init_pos = init_infos.second.pos;
+    webgame::vector init_pos = infos.player.pos;
     webgame::vector move({ 1, 1 });
 
     bot1.change_speed(speed);
@@ -486,7 +518,7 @@ TEST(server, player_reconnect)
     webgame::vector init_pos;
 
     BOT(bot1);
-    state_player_order init_state = bot1.authenticate().second;
+    state_player_order init_state = bot1.authenticate().player;
     init_pos = get_order<state_player_order>(bot1.read_ptree()).pos;
     bot1.change_speed(1);
     bot1.move_to(init_state.pos + webgame::vector({ 5, 0 }));
@@ -519,7 +551,9 @@ TEST(server, persistence)
 {
     boost::asio::io_context io_context;
     RESETDB;
-    std::shared_ptr<webgame::server> wg = std::make_shared<webgame::server>(io_context, 2000, std::make_shared<webgame::redis_persistence>(io_context, "localhost", 6379, 1));
+    std::shared_ptr<webgame::server> wg = std::make_shared<webgame::server>(io_context, 2000, std::make_shared<webgame::redis_persistence>(io_context, "localhost", 6379, 1), "none", [](webgame::entities &ents) {
+        return std::make_shared<webgame::upview_player>();
+        });
 
     webgame::vector bot1_target_pos;
     webgame::vector bot2_target_pos;
@@ -539,9 +573,9 @@ TEST(server, persistence)
         test_bot bot2(io_context, "bot2");
 
         auto bot1_init_states = bot1.authenticate();
-        double tick_duration = bot1_init_states.first.tick_duration;
-        webgame::vector bot1_init_pos = bot1_init_states.second.pos;
-        webgame::vector bot2_init_pos = bot2.authenticate().second.pos;
+        double tick_duration = bot1_init_states.game.tick_duration;
+        webgame::vector bot1_init_pos = bot1_init_states.player.pos;
+        webgame::vector bot2_init_pos = bot2.authenticate().player.pos;
 
         bot1.change_speed(1);
         bot2.change_speed(1);
@@ -589,10 +623,10 @@ TEST(server, persistence)
         test_bot bot2(io_context, "bot2");
 
         auto bot1_init_states = bot1.authenticate();
-        double tick_duration = bot1_init_states.first.tick_duration;
+        double tick_duration = bot1_init_states.game.tick_duration;
         ASSERT_EQ(0.424, tick_duration);
-        state_player_order bot1_new_state = bot1_init_states.second;
-        state_player_order bot2_new_state = bot2.authenticate().second;
+        state_player_order bot1_new_state = bot1_init_states.player;
+        state_player_order bot2_new_state = bot2.authenticate().player;
 
         ASSERT_EQ(bot1_state.pos, bot1_new_state.pos);
         ASSERT_EQ(bot2_state.pos, bot2_new_state.pos);

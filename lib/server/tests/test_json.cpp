@@ -10,7 +10,7 @@
 
 TEST(json, state_player)
 {
-    std::shared_ptr<webgame::player> ent = std::make_shared<webgame::player>();
+    std::shared_ptr<webgame::player> ent = std::make_shared<webgame::upview_player>();
     ent->set_pos({1.1, -2.2});
     ent->set_dir({-3.3, 4.4});
     ent->set_speed(0.5);
@@ -43,7 +43,7 @@ TEST(json, state_player)
 
     ASSERT_TRUE(j.count("type"));
     ASSERT_TRUE(j["type"].is_string());
-    ASSERT_EQ("player", j["type"].get<std::string>());
+    ASSERT_EQ("upview_player", j["type"].get<std::string>());
 
     ASSERT_TRUE(j.count("speed"));
     ASSERT_TRUE(j["speed"].is_number_float());
@@ -79,7 +79,7 @@ TEST(json, state_entities)
         { 10, std::make_shared<webgame::attack_on_sight>(0.7f) },
         { 20, std::make_shared<webgame::stop>() },
         })));
-    ents.add(std::make_shared<webgame::player>());
+    ents.add(std::make_shared<webgame::upview_player>());
 
     std::string ents_json;
     ASSERT_NO_THROW(ents_json = json_state_entities(ents));

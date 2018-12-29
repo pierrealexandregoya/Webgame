@@ -24,6 +24,7 @@ class WEBGAME_API server : public std::enable_shared_from_this<server>
 {
 private:
     typedef std::chrono::duration<double, std::ratio<1>> delta_duration;
+    typedef void(load_player_handler)(std::shared_ptr<player>);
 
 private:
     connections                              conns_;
@@ -43,11 +44,13 @@ private:
 #endif /* !WEBGAME_MONOTHREAD */
     std::shared_ptr<bool>                    stop_;
     boost::asio::steady_timer                game_cycle_timer_;
+    std::function<std::shared_ptr<player>(entities &ents)> init_player_;
+    std::string                              game_name_;
 
     WEBGAME_NON_MOVABLE_OR_COPYABLE(server);
 
 public:
-    server(boost::asio::io_context &io_context, unsigned int port, std::shared_ptr<persistence> const& persistence);
+    server(boost::asio::io_context &io_context, unsigned int port, std::shared_ptr<persistence> const& persistence, std::string const& game_name, std::function<std::shared_ptr<player>(entities &ents)> &&init_player);
 
     template<class Rep = int, class Per = std::milli>
     void start(std::chrono::duration<Rep, Per> const& tick_duration = std::chrono::duration<Rep, Per>(250))
@@ -65,6 +68,7 @@ public:
 
     void                            shutdown();
     bool                            is_player_connected(std::string const& name);
+    void							async_load_player(std::shared_ptr<player_conn> const& conn, std::string const& name, std::function<load_player_handler> &&handler);
     void                            register_player(std::shared_ptr<player_conn> const& conn, std::shared_ptr<player> const& new_ent);
     std::shared_ptr<persistence>    get_persistence();
     connections const&              get_connections() const;

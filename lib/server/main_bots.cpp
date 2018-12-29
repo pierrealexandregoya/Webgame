@@ -126,7 +126,7 @@ int main(int ac, char **av)
                     ws->write(asio::buffer("{\"order\":\"action\", \"suborder\":\"change_speed\", \"speed\":0.1}"), ec);
                     CHECK_DO(ws, ec, "SPEED CHANGED", ws->close(beast::websocket::close_code::abnormal); continue);
 
-                    sockets.push_back(std::move(ws));
+                    sockets.push_back(std::make_shared<socket_type>(std::move(ws_tmp)));
                 }
 
                 // LOOP

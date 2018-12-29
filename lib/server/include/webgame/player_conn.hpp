@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include <boost/asio/io_context_strand.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core/multi_buffer.hpp>
@@ -24,18 +25,18 @@ class server;
 class player_conn : public std::enable_shared_from_this<player_conn>
 {
 public:
-    struct patch
-    {
-        std::string what;
-        any         value;
+    //struct patch
+    //{
+    //    std::string what;
+    //    any         value;
 
-        patch(std::string &&w, any &&v);
-        patch(patch &&other) = default;
-        patch & operator=(patch &&) = default;
+    //    patch(std::string &&w, any &&v);
+    //    patch(patch &&other) = default;
+    //    patch & operator=(patch &&) = default;
 
-        patch(patch const&) = delete;
-        patch & operator=(patch const&) = delete;
-    };
+    //    patch(patch const&) = delete;
+    //    patch & operator=(patch const&) = delete;
+    //};
 
     enum state
     {
@@ -67,10 +68,10 @@ private:
 #ifndef WEBGAME_MONOTHREAD
     std::recursive_mutex                                              handlers_mutex_;
 #endif /* !WEBGAME_MONOTHREAD */
-    std::queue<patch>                                                 patches_;
-#ifndef WEBGAME_MONOTHREAD
-    mutable std::recursive_mutex                                      patches_mutex_;
-#endif /* !WEBGAME_MONOTHREAD */
+//    std::queue<patch>                                                 patches_;
+//#ifndef WEBGAME_MONOTHREAD
+//    mutable std::recursive_mutex                                      patches_mutex_;
+//#endif /* !WEBGAME_MONOTHREAD */
     boost::beast::websocket::close_code                               close_code_;
     std::string                                                       player_name_;
     std::shared_ptr<server>                                           server_;
@@ -85,12 +86,14 @@ public:
     void                            start();
     void                            write(std::shared_ptr<std::string const> msg);
     void                            close();
-    patch                           pop_patch();
-    bool                            has_patch() const;
+    //patch                           pop_patch();
+    //bool                            has_patch() const;
 
     bool                            is_closed() const;
     std::shared_ptr<player> const&  player_entity() const;
+    void                            set_player_entity(std::shared_ptr<player> const& entity);
     state                           current_state() const;
+    void                            set_state(state st);
     bool                            is_ready() const;
     std::string const&              player_name() const;
 
@@ -108,8 +111,8 @@ private:
 
     void interpret(std::string &&order_str);
 
-    void push_patch(std::string && what, any && value);
-    void push_patch(patch && p);
+    //void push_patch(std::string && what, any && value);
+    //void push_patch(patch && p);
 };
 
 } // namespace webgame

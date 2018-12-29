@@ -47,7 +47,7 @@ int main()
 
     asio::io_context io_context;
 
-    std::shared_ptr<webgame::persistence> redis = std::make_shared<webgame::redis_persistence>(io_context, "localhost");
+    std::shared_ptr<webgame::persistence> redis = std::make_shared<webgame::redis_persistence>(io_context, "localhost", 6379, 10);
 
     WEBGAME_LOG("RESET", "STARTING");
     if (!redis->start())

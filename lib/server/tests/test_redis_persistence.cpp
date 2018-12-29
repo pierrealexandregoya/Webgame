@@ -59,33 +59,100 @@ TEST(redis_persistence, all)
         ASSERT_TRUE(ents.find(object1_id) != ents.cend());
         ASSERT_TRUE(std::dynamic_pointer_cast<webgame::stationnary_entity>(ents[object1_id]));
     }
-    // async_load_player
+    // async_check/add/get_player async_save
     {
+        {
+            bool called1 = false;
+            bool exists1 = false;
+            p.async_check_player("pseudo1", [&called1, &exists1](bool exists, webgame::id_t id) { called1 = true; exists1 = exists; });
+            bool called2 = false;
+            bool exists2 = false;
+            p.async_check_player("pseudo2", [&called2, &exists2](bool exists, webgame::id_t id) { called2 = true; exists2 = exists;  });
+            size_t nb_op;
+            ASSERT_NO_THROW(nb_op = ioc.run_for(time_out));
+            ASSERT_TRUE(ioc.stopped());
+            ASSERT_TRUE(called1);
+            ASSERT_FALSE(exists1);
+            ASSERT_TRUE(called2);
+            ASSERT_FALSE(exists2);
+            ioc.restart();
+        }
+
+        {
+            bool called1 = false;
+            p.async_add_player("pseudo1", std::make_shared<webgame::upview_player>(), [&called1]() { called1 = true; });
+            bool called2 = false;
+            p.async_add_player("pseudo2", std::make_shared<webgame::upview_player>(), [&called2]() { called2 = true; });
+            size_t nb_op;
+            ASSERT_NO_THROW(nb_op = ioc.run_for(time_out));
+            ASSERT_TRUE(ioc.stopped());
+            ASSERT_TRUE(called1);
+            ASSERT_TRUE(called2);
+            ioc.restart();
+        }
+
+        webgame::id_t id1;
+        webgame::id_t id2;
+        {
+            bool called1 = false;
+            bool exists1 = false;
+            p.async_check_player("pseudo1", [&called1, &exists1, &id1](bool exists, webgame::id_t id) { called1 = true; exists1 = exists; id1 = id; });
+            bool called2 = false;
+            bool exists2 = false;
+            p.async_check_player("pseudo2", [&called2, &exists2, &id2](bool exists, webgame::id_t id) { called2 = true; exists2 = exists; id2 = id; });
+            size_t nb_op;
+            ASSERT_NO_THROW(nb_op = ioc.run_for(time_out));
+            ASSERT_TRUE(ioc.stopped());
+            ASSERT_TRUE(called1);
+            ASSERT_TRUE(exists1);
+            ASSERT_TRUE(called2);
+            ASSERT_TRUE(exists2);
+            ASSERT_NE(id1, id2);
+            ioc.restart();
+        }
+
+        {
+            bool called = false;
+            bool exists = false;
+            p.async_get_player(42, [&called, &exists](bool exists, std::shared_ptr<webgame::player> const& player_p) { called = true; exists = exists; });
+            size_t nb_op;
+            ASSERT_NO_THROW(nb_op = ioc.run_for(time_out));
+            ASSERT_TRUE(ioc.stopped());
+            ASSERT_TRUE(called);
+            ASSERT_FALSE(exists);
+            ioc.restart();
+        }
+
         webgame::entities ents;
         std::shared_ptr<webgame::player> ent1;
         std::shared_ptr<webgame::player> ent2;
         {
             bool called1 = false;
-            p.async_load_player("pseudo1", [&called1, &ent1](std::shared_ptr<webgame::player> const& ent_p) {called1 = true; ent1 = ent_p; });
+            bool exists1 = false;
+            p.async_get_player(id1, [&called1, &ent1, &exists1](bool exists, std::shared_ptr<webgame::player> const& ent_p) {called1 = true; ent1 = ent_p; exists1 = exists; });
             bool called2 = false;
-            p.async_load_player("pseudo2", [&called2, &ent2](std::shared_ptr<webgame::player> const& ent_p) {called2 = true; ent2 = ent_p; });
+            bool exists2 = false;
+            p.async_get_player(id2, [&called2, &ent2, &exists2](bool exists, std::shared_ptr<webgame::player> const& ent_p) {called2 = true; ent2 = ent_p; exists2 = exists; });
             size_t nb_op;
             ASSERT_NO_THROW(nb_op = ioc.run_for(time_out));
             // ASSERT_EQ(3 * 2 + 3 * 2, nb_op);
             ASSERT_TRUE(ioc.stopped());
             ASSERT_TRUE(called1);
             ASSERT_TRUE(ent1);
+            ASSERT_TRUE(exists1);
             ASSERT_TRUE(called2);
             ASSERT_TRUE(ent2);
+            ASSERT_TRUE(exists2);
             ASSERT_NE(ent1, ent2);
             ASSERT_NE(*ent1, *ent2);
             ASSERT_EQ(webgame::vector({ 0, 0 }), ent1->pos());
             ASSERT_EQ(webgame::vector({ 0, -1 }), ent1->dir());
             ASSERT_EQ(1, ent1->max_speed());
             ASSERT_EQ(0, ent1->speed());
-            ASSERT_EQ("player", ent1->type());
+            ASSERT_EQ("upview_player", ent1->type());
             ASSERT_EQ(1, ent1.use_count());
             ioc.restart();
+            
             ents.add(ent1);
             ASSERT_EQ(2, ent1.use_count());
             ents.add(ent2);
@@ -93,15 +160,18 @@ TEST(redis_persistence, all)
             ent1->set_speed(0.2f);
             ent2->set_dir({ 6.6f, 7.7f });
             ent2->set_speed(0.5f);
-            p.async_save(ents, [] {});
+            bool called3 = false;
+            p.async_save(ents, [&called3] {called3 = true; });
+            //ioc.run_for(time_out);
             ioc.run();
+            ASSERT_TRUE(called3);
             ioc.restart();
         }
         {
             bool called1 = false; std::shared_ptr<webgame::entity> ent3;
-            p.async_load_player("pseudo1", [&called1, &ent3](std::shared_ptr<webgame::entity> const& ent_p) {called1 = true; ent3 = ent_p; });
+            p.async_get_player(id1, [&called1, &ent3](bool exists, std::shared_ptr<webgame::entity> const& ent_p) {called1 = true; ent3 = ent_p; });
             bool called2 = false; std::shared_ptr<webgame::entity> ent4;
-            p.async_load_player("pseudo2", [&called2, &ent4](std::shared_ptr<webgame::entity> const& ent_p) {called2 = true; ent4 = ent_p; });
+            p.async_get_player(id2, [&called2, &ent4](bool exists, std::shared_ptr<webgame::entity> const& ent_p) {called2 = true; ent4 = ent_p; });
             size_t nb_op;
             ASSERT_NO_THROW(nb_op = ioc.run_for(time_out));
             // ASSERT_EQ(2 * 2 + 2 * 2, nb_op);

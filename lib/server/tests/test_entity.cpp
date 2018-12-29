@@ -41,9 +41,9 @@ TEST(entity, all)
     }
 }
 
-TEST(entity, player)
+TEST(entity, upview_player)
 {
-    webgame::player p;
+    webgame::upview_player p;
 
     webgame::entities ents;
     webgame::env empty_env(ents);
