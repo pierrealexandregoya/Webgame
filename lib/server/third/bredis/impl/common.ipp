@@ -29,15 +29,15 @@ struct consumed_parse : public boost::static_visitor<int> {
         return static_cast<int>(value.consumed);
     }
 
-    int operator()(const not_enough_data_t &value) const { return 0; }
+    int operator()(const not_enough_data_t & /*value*/) const { return 0; }
 
-    int operator()(const protocol_error_t &value) const { return -1; }
+    int operator()(const protocol_error_t & /*value*/) const { return -1; }
 };
 
 template <typename Iterator> class MatchResult {
   private:
-    std::size_t matched_results_;
     std::size_t expected_count_;
+    std::size_t matched_results_;
 
   public:
     MatchResult(std::size_t expected_count)
@@ -74,22 +74,21 @@ template <typename Iterator> class MatchResult {
     }
 };
 
-class command_serializer_visitor : public boost::static_visitor<std::string> {
+template <typename DynamicBuffer>
+class command_serializer_visitor : public boost::static_visitor<void> {
+  private:
+    DynamicBuffer &buff_;
+
   public:
-    std::string operator()(const single_command_t &value) const {
-        std::stringstream out;
-        out.imbue(std::locale::classic());
-        Protocol::serialize(out, value);
-        return out.str();
+    command_serializer_visitor(DynamicBuffer &buff) : buff_{buff} {}
+    void operator()(const single_command_t &value) const {
+        Protocol::serialize(buff_, value);
     }
 
-    std::string operator()(const command_container_t &value) const {
-        std::stringstream out;
-        out.imbue(std::locale::classic());
+    void operator()(const command_container_t &value) const {
         for (const auto &cmd : value) {
-            Protocol::serialize(out, cmd);
+            Protocol::serialize(buff_, cmd);
         }
-        return out.str();
     }
 };
 
@@ -101,5 +100,5 @@ namespace asio {
 template <typename Iterator>
 struct is_match_condition<bredis::MatchResult<Iterator>>
     : public boost::true_type {};
-}
-}
+} // namespace asio
+} // namespace boost

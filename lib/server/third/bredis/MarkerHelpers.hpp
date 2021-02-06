@@ -1,12 +1,14 @@
 //
 //
-// Copyright (c) 2017 Ivan Baidakou (basiliscos) (the dot dmol at gmail dot com)
+// Copyright (c) 2017-2019 Ivan Baidakou (basiliscos) (the dot dmol at gmail dot
+// com)
 //
 // Distributed under the MIT Software License
 //
 #pragma once
 
 #include <algorithm>
+#include <boost/algorithm/cxx14/equal.hpp>
 #include <boost/convert.hpp>
 #include <boost/convert/lexical_cast.hpp>
 #include <cctype>
@@ -47,7 +49,7 @@ struct stringizer : public boost::static_visitor<std::string> {
         return "[int] " + r;
     }
 
-    std::string operator()(const markers::nil_t<Iterator> &value) const {
+    std::string operator()(const markers::nil_t<Iterator> &) const {
         return "[nil] ";
     }
 
@@ -75,26 +77,27 @@ class equality : public boost::static_visitor<bool> {
     equality(std::string str)
         : copy_(str), begin_(std::begin(copy_)), end_(std::end(copy_)) {}
 
-    template <typename T> bool operator()(const T &value) const {
+    template <typename T> bool operator()(const T & /*value */) const {
         return false;
     }
 
     bool operator()(const markers::string_t<Iterator> &value) const {
-        auto helper = stringizer<Iterator>();
-        auto str = helper(value);
-        return std::equal(begin_, end_, value.from, value.to);
+        return boost::algorithm::equal(begin_, end_, value.from, value.to);
     }
 
     bool operator()(const markers::int_t<Iterator> &value) const {
-        return std::equal(begin_, end_, value.string.from, value.string.to);
+        return boost::algorithm::equal(begin_, end_, value.string.from,
+                                       value.string.to);
     }
 
     bool operator()(const markers::error_t<Iterator> &value) const {
-        return std::equal(begin_, end_, value.string.from, value.string.to);
+        return boost::algorithm::equal(begin_, end_, value.string.from,
+                                       value.string.to);
     }
 
     bool operator()(const markers::nil_t<Iterator> &value) const {
-        return std::equal(begin_, end_, value.string.from, value.string.to);
+        return boost::algorithm::equal(begin_, end_, value.string.from,
+                                       value.string.to);
     }
 };
 
@@ -118,7 +121,7 @@ class check_subscription : public boost::static_visitor<bool> {
     template <typename Command>
     check_subscription(Command &&cmd) : cmd_{std::forward<Command>(cmd)} {}
 
-    template <typename T> bool operator()(const T &value) const {
+    template <typename T> bool operator()(const T & /*value*/) const {
         return false;
     }
 
@@ -171,13 +174,13 @@ class check_subscription : public boost::static_visitor<bool> {
             }
 
             const auto &channel_ = cmd_.arguments[idx];
-            return std::equal(channel_.cbegin(), channel_.cend(), channel->from,
-                              channel->to);
+            return boost::algorithm::equal(channel_.cbegin(), channel_.cend(),
+                                           channel->from, channel->to);
         }
         return false;
     }
 };
 
-} // marker_helpers
+} // namespace marker_helpers
 
-} // bredis
+} // namespace bredis

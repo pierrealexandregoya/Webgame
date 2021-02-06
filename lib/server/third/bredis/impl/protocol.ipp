@@ -7,9 +7,11 @@
 #pragma once
 
 #include <algorithm>
+#include <boost/asio/buffer.hpp>
 #include <boost/asio/buffers_iterator.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/variant.hpp>
+#include <cstdio>
 #include <errno.h>
 #include <stdlib.h>
 #include <string>
@@ -121,12 +123,13 @@ struct markup_helper_t<Iterator, parsing_policy::drop_result> {
     using positive_wrapper_t = parse_result_mapper_t<Iterator, policy_t>;
     using string_t = markers::string_t<Iterator>;
 
-    static auto markup_string(size_t consumed, const Iterator &from,
-                              const Iterator &to) -> result_wrapper_t {
+    static auto markup_string(size_t consumed, const Iterator & /*from*/,
+                              const Iterator &
+                              /*to*/) -> result_wrapper_t {
         return result_wrapper_t{positive_wrapper_t{consumed}};
     }
 
-    static auto markup_nil(size_t consumed, const string_t &str)
+    static auto markup_nil(size_t consumed, const string_t & /*str*/)
         -> result_wrapper_t {
         return result_wrapper_t{positive_wrapper_t{consumed}};
     }
@@ -174,7 +177,7 @@ struct array_helper_t<Iterator, parsing_policy::drop_result> {
 
     size_t consumed_;
 
-    array_helper_t(size_t consumed, size_t count) : consumed_{consumed} {}
+    array_helper_t(size_t consumed, size_t /*count*/) : consumed_{consumed} {}
 
     void push(const item_t &item) { consumed_ += item.consumed; }
 
@@ -286,7 +289,7 @@ template <typename Iterator, typename Policy> struct bulk_string_parser_t {
 
         auto count_result = count_parser_t::apply(from, to, already_consumed);
         auto count_int_result =
-            boost::apply_visitor(count_unwrapper_t{}, count_result);
+            boost::apply_visitor(count_unwrapper_t(), count_result);
         auto *count_wrapped = boost::get<count_value_t>(&count_int_result);
         if (!count_wrapped) {
             return boost::get<result_t>(count_int_result);
@@ -318,7 +321,6 @@ template <typename Iterator, typename Policy> struct array_parser_t {
                       size_t already_consumed)
         -> parse_result_t<Iterator, Policy> {
 
-        using helper = markup_helper_t<Iterator, Policy>;
         using count_unwrapper_t = unwrap_count_t<Iterator, Policy>;
         using result_t = parse_result_t<Iterator, Policy>;
         using keep_policy = parsing_policy::keep_result;
@@ -328,7 +330,7 @@ template <typename Iterator, typename Policy> struct array_parser_t {
 
         auto count_result = count_parser_t::apply(from, to, already_consumed);
         auto count_int_result =
-            boost::apply_visitor(count_unwrapper_t{}, count_result);
+            boost::apply_visitor(count_unwrapper_t(), count_result);
         auto *count_wrapped = boost::get<count_value_t>(&count_int_result);
         if (!count_wrapped) {
             return boost::get<result_t>(count_int_result);
@@ -336,7 +338,7 @@ template <typename Iterator, typename Policy> struct array_parser_t {
 
         auto count = count_wrapped->value;
         array_helper elements{count_wrapped->consumed, count};
-        long marked_elements{0};
+        size_t marked_elements{0};
         Iterator element_from =
             from + (count_wrapped->consumed - already_consumed);
         while (marked_elements < count) {
@@ -379,7 +381,7 @@ struct unwrap_primary_parser_t
     }
 
     template <typename Parser>
-    wrapped_result_t operator()(const Parser &ignored) const {
+    wrapped_result_t operator()(const Parser & /*ignored*/) const {
         auto next_from = from_ + 1;
         return Parser::apply(next_from, to_, 1);
     }
@@ -434,14 +436,58 @@ parse_result_t<Iterator, Policy> Protocol::parse(const Iterator &from,
     return details::raw_parse<Iterator, Policy>(from, to);
 }
 
-std::ostream &Protocol::serialize(std::ostream &buff,
-                                  const single_command_t &cmd) {
-    buff << '*' << (cmd.arguments.size()) << terminator;
+inline std::size_t size_for_int(std::size_t arg) {
+    std::size_t r = 0;
+    while (arg) {
+        ++r;
+        arg /= 10;
+    }
+    return std::max<size_t>(1, r); /* if r == 0 we clamp max to 1 to allow minimum containing "0" as char */
+}
+
+inline std::size_t command_size(const single_command_t &cmd) {
+    std::size_t sz = 1                                    /* * */
+                     + size_for_int(cmd.arguments.size()) /* args size */
+                     + terminator.size;
 
     for (const auto &arg : cmd.arguments) {
-        buff << '$' << arg.size() << terminator << arg << terminator;
+        sz += 1                          /* $ */
+              + size_for_int(arg.size()) /* argument size */
+              + terminator.size + arg.size() + terminator.size;
     }
-    return buff;
+    return sz;
+}
+
+template <typename DynamicBuffer>
+inline void Protocol::serialize(DynamicBuffer &buff,
+                                const single_command_t &cmd) {
+
+    auto it = buff.prepare(command_size(cmd));
+    constexpr std::size_t buff_sz = 64;
+    using namespace boost::asio;
+    char data[buff_sz];
+    std::size_t total =
+        snprintf(data, buff_sz, "*%zu\r\n", cmd.arguments.size());
+    buffer_copy(it, buffer(data, total));
+    it += total;
+
+    for (const auto &arg : cmd.arguments) {
+        auto bytes = snprintf(data, buff_sz, "$%zu\r\n", arg.size());
+        buffer_copy(it, buffer(data, bytes));
+        it += bytes;
+        total += bytes;
+
+        if(!arg.empty()) {
+            buffer_copy(it, buffer(arg.data(), arg.size()));
+            it += arg.size();
+            total += arg.size();
+        }
+
+        buffer_copy(it, buffer("\r\n", terminator.size));
+        total += terminator.size;
+        it += terminator.size;
+    }
+    buff.commit(total);
 }
 
 } // namespace bredis

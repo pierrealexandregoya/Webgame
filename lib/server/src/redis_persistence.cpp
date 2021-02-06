@@ -23,12 +23,13 @@ redis_persistence::redis_persistence(boost::asio::io_context &io_context, std::s
     , host_(host)
     , port_(port)
     , index_(index)
+    , io_context_(io_context)
 {}
 
 bool redis_persistence::start()
 {
     try {
-        asio::ip::tcp::resolver resolver(socket_.get_io_context());
+        asio::ip::tcp::resolver resolver(io_context_);
 
         asio::ip::basic_resolver_results<asio::ip::tcp> resolve_results = resolver.resolve(host_, std::to_string(port_));
 

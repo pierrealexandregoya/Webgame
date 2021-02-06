@@ -21,6 +21,7 @@ private:
     unsigned short port_;
     unsigned int index_;
     boost::asio::ip::tcp::socket socket_;
+    boost::asio::io_context &io_context_;
 
 private:
     WEBGAME_NON_MOVABLE_OR_COPYABLE(redis_persistence);

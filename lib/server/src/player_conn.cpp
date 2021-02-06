@@ -41,14 +41,14 @@ player_conn::patch::patch(std::string &&w, any &&v)
     , value(std::move(v))
 {}
 
-player_conn::player_conn(asio::ip::tcp::socket &&socket, std::shared_ptr<server> const& server)
+player_conn::player_conn(asio::ip::tcp::socket &&socket, boost::asio::io_context &ioc, std::shared_ptr<server> const& server)
     : addr_str(socket.remote_endpoint().address().to_string() + ":" + std::to_string(socket.remote_endpoint().port()))
     , socket_(std::move(socket))
-    , strand_(socket_.get_executor())
+    , strand_(ioc)
     , state_(none)
     , close_code_(beast::websocket::close_code::none)
     , server_(server)
-    , close_timer_(socket_.get_executor().context())
+    , close_timer_(socket_.get_executor())
 {
     state_ = ready;
     socket_.auto_fragment(true);
@@ -76,10 +76,11 @@ void player_conn::write(std::shared_ptr<std::string const> msg)
 
 void player_conn::close()
 {
-    if (socket_.get_executor().running_in_this_thread())
+    if (strand_.running_in_this_thread())
         do_close(beast::websocket::close_code::normal);
     else
         asio::post(socket_.get_executor(), asio::bind_executor(strand_, std::bind(&player_conn::do_close, shared_from_this(), beast::websocket::close_code::normal)));
+    state_ = state::closed;
 }
 
 player_conn::patch player_conn::pop_patch()

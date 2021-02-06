@@ -58,7 +58,8 @@ public:
 
 private:
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket>     socket_;
-    boost::asio::strand<boost::asio::io_context::executor_type> const strand_;
+    // boost::asio::strand<boost::asio::io_context::executor_type> const strand_;
+    boost::asio::io_context::strand                                   strand_;
     state                                                             state_;
     boost::beast::multi_buffer                                        read_buffer_;
     std::list<std::shared_ptr<std::string const>>                     to_write_;
@@ -79,7 +80,7 @@ private:
     WEBGAME_NON_MOVABLE_OR_COPYABLE(player_conn);
 
 public:
-    player_conn(boost::asio::ip::tcp::socket &&socket, std::shared_ptr<server> const& server);
+    player_conn(boost::asio::ip::tcp::socket &&socket, boost::asio::io_context &ioc, std::shared_ptr<server> const& server);
 
     void                            start();
     void                            write(std::shared_ptr<std::string const> msg);

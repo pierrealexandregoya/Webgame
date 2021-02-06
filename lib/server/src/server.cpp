@@ -367,7 +367,7 @@ void server::on_accept(const boost::system::error_code& ec) noexcept
         new_client_socket_.close(ec);
     }
 
-    auto new_conn = std::make_shared<player_conn>(std::move(new_client_socket_), shared_from_this());
+    auto new_conn = std::make_shared<player_conn>(std::move(new_client_socket_), io_context_, shared_from_this());
 
     conns_.emplace_back(new_conn);
 
