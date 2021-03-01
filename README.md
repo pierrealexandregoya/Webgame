@@ -4,7 +4,7 @@
 
 This project was meant as a framework to ease the development of multiplayer games proposing a C++ library for the server part and some generic scripts in JS for a frontend in browser. It ended as a way too complex solution to achieve this goal regarding the existence of professional projects like Unity.
 
-A main() function setting up and launching the server would look like that (See full code at lib/server/src/application.cpp):
+A main() function setting up and launching the server would look like that (see full code at lib/server/src/application.cpp):
 ```cpp
 int application(int ac, char **av)
 {
@@ -59,11 +59,11 @@ int application(int ac, char **av)
 ```
 
 ------------
-The following demo is a POC of the concepts developed in this project. The player (the Knight) enters the area the enemy npc (the Skeleton) is limited to. When he does, the npc "sees" him and starts to track him until he exits the area (delimited here by the four crosses around him). Meanwhile an example of an ally npc does a kind a patrol in a similar restricted area.
+The following demo is a proof of the concepts developed in this project. The player (the knight) enters the area the enemy npc (the skeleton) is limited to. When he does, the npc "sees" him and starts to track him until he exits the area (delimited here by the four crosses around him). Meanwhile an example of an ally npc does a kind a patrol in a similar restricted area.
 
 ![Demo](https://raw.githubusercontent.com/pierrealexandregoya/Webgame/ce30ea8e3906ed8834888cba2b6c24723bfbe674/extra/2021-02-07%2013-22-17.gif "Demo")
 
-In terms of code, here is how these npc and objects (crosses) were declared
+In terms of code, here is how these npc and objects (crosses) were declared:
 ```cpp
 webgame::entities ents;
 
